@@ -1,230 +1,234 @@
 #!/bin/bash
 # ==================================
-# tvbox_php 403 错误修复脚本
+# tvbox_php 502 错误修复脚本
 # ==================================
 
-WEB_DIR="$HOME/storage/shared/zcl"
-PORT=8081
+echo "🔧 开始修复 502 Bad Gateway 错误..."
 
-echo "🔧 开始修复 403 错误..."
+# 1. 停止所有服务
+echo "1. 停止服务..."
+pkill -f "nginx: master" 2>/dev/null
+pkill -f php-fpm 2>/dev/null
+pkill -f "php-fpm: master" 2>/dev/null
+sleep 2
 
-# 1. 重新创建网站目录（确保权限正确）
-echo "1. 设置目录权限..."
-rm -rf "$WEB_DIR"
-mkdir -p "$WEB_DIR"
-chmod 755 "$WEB_DIR"
+# 2. 检查 PHP-FPM 配置
+echo "2. 检查 PHP-FPM 配置..."
+PHP_FPM_CONF="$PREFIX/etc/php-fpm.d/www.conf"
 
-# 2. 创建测试文件
-echo "2. 创建测试文件..."
-cat > "$WEB_DIR/index.php" <<'EOF'
-<!DOCTYPE html>
-<html>
-<head>
-    <title>TVBox PHP 测试</title>
-    <meta charset="utf-8">
-</head>
-<body>
-    <h1>🎉 TVBox PHP 服务运行成功！</h1>
-    <p>✅ 如果看到此页面，说明 403 错误已修复</p>
-    <p>📌 PHP 版本: <?php echo PHP_VERSION; ?></p>
-    <p>🕒 服务器时间: <?php echo date('Y-m-d H:i:s'); ?></p>
-    
-    <h2>环境信息：</h2>
-    <ul>
-        <li>当前用户: <?php echo exec('whoami'); ?></li>
-        <li>文档根目录: <?php echo $_SERVER['DOCUMENT_ROOT']; ?></li>
-        <li>脚本路径: <?php echo __FILE__; ?></li>
-    </ul>
-    
-    <h2>PHP 配置测试：</h2>
-    <?php
-    // 测试 PHP 功能
-    echo "<p>PHP 基本功能: " . (function_exists('phpinfo') ? '✅ 正常' : '❌ 异常') . "</p>";
-    echo "<p>文件读写: " . (is_writable(__FILE__) ? '✅ 可写' : '❌ 不可写') . "</p>";
-    
-    // 显示目录内容
-    echo "<h3>网站目录文件列表：</h3>";
-    $files = scandir(__DIR__);
-    echo "<ul>";
-    foreach ($files as $file) {
-        if ($file != "." && $file != "..") {
-            $filepath = __DIR__ . '/' . $file;
-            $filetype = is_dir($filepath) ? "📁" : "📄";
-            $perms = substr(sprintf('%o', fileperms($filepath)), -4);
-            echo "<li>$filetype $file (权限: $perms)</li>";
-        }
-    }
-    echo "</ul>";
-    ?>
-</body>
-</html>
+if [ ! -f "$PHP_FPM_CONF" ]; then
+    echo "❌ PHP-FPM 配置文件不存在，重新安装..."
+    pkg reinstall -y php-fpm
+fi
+
+# 3. 完全重写 PHP-FPM 配置
+echo "3. 重写 PHP-FPM 配置..."
+cat > "$PHP_FPM_CONF" <<'EOF'
+[www]
+; 监听地址和端口
+listen = 127.0.0.1:9000
+
+; 进程设置
+listen.owner = $(whoami)
+listen.group = $(whoami)
+listen.mode = 0660
+
+; 进程用户和组
+user = $(whoami)
+group = $(whoami)
+
+; 进程管理
+pm = dynamic
+pm.max_children = 5
+pm.start_servers = 2
+pm.min_spare_servers = 1
+pm.max_spare_servers = 3
+
+; 日志设置
+catch_workers_output = yes
+php_admin_value[error_log] = /data/data/com.termux/files/usr/var/log/php-fpm.log
+php_admin_flag[log_errors] = on
+
+; 安全设置
+security.limit_extensions = .php .php3 .php4 .php5 .php7
+
+; 性能设置
+request_terminate_timeout = 60
+request_slowlog_timeout = 30
+slowlog = /data/data/com.termux/files/usr/var/log/php-fpm-slow.log
 EOF
 
-chmod 644 "$WEB_DIR/index.php"
+# 4. 创建 PHP 配置文件（如果不存在）
+echo "4. 配置 PHP..."
+PHP_INI="$PREFIX/etc/php.ini"
+if [ -f "$PHP_INI" ]; then
+    # 启用必要的扩展
+    sed -i 's/;extension=curl/extension=curl/g' "$PHP_INI"
+    sed -i 's/;extension=gd/extension=gd/g' "$PHP_INI"
+    sed -i 's/;extension=mysqli/extension=mysqli/g' "$PHP_INI"
+    sed -i 's/;extension=pdo_mysql/extension=pdo_mysql/g' "$PHP_INI"
+    sed -i 's/;extension=openssl/extension=openssl/g' "$PHP_INI"
+fi
 
-# 3. 创建简单的 HTML 测试页（避免 PHP 问题）
-cat > "$WEB_DIR/index.html" <<'EOF'
-<!DOCTYPE html>
-<html>
-<head>
-    <title>TVBox HTML 测试</title>
-    <meta charset="utf-8">
-    <style>
-        body { font-family: Arial, sans-serif; margin: 40px; }
-        .success { color: green; font-size: 24px; }
-        .info { background: #f0f0f0; padding: 20px; border-radius: 10px; }
-    </style>
-</head>
-<body>
-    <h1 class="success">✅ HTML 页面可访问！</h1>
-    <p>这说明 Nginx 服务器工作正常。</p>
-    
-    <div class="info">
-        <h2>下一步测试：</h2>
-        <p>请访问 <a href="/index.php">PHP 测试页面</a> 检查 PHP 是否工作。</p>
-        <p>如果 PHP 页面仍然 403，请检查 PHP-FPM 配置。</p>
-    </div>
-</body>
-</html>
-EOF
+# 5. 创建必要的日志目录
+echo "5. 创建日志目录..."
+mkdir -p "$PREFIX/var/log"
+mkdir -p "$PREFIX/var/run"
+touch "$PREFIX/var/log/php-fpm.log"
+chmod 666 "$PREFIX/var/log/php-fpm.log"
 
-chmod 644 "$WEB_DIR/index.html"
-
-# 4. 修复 Nginx 配置
-echo "3. 修复 Nginx 配置..."
+# 6. 重写 Nginx 配置
+echo "6. 重写 Nginx 配置..."
 NGINX_CONF="$PREFIX/etc/nginx/nginx.conf"
 
-cat > "$NGINX_CONF" <<EOF
+cat > "$NGINX_CONF" <<'EOF'
 worker_processes 1;
-error_log $PREFIX/var/log/nginx/error.log;
+error_log /data/data/com.termux/files/usr/var/log/nginx/error.log;
 
 events {
     worker_connections 1024;
 }
 
 http {
-    include $PREFIX/etc/nginx/mime.types;
+    include /data/data/com.termux/files/usr/etc/nginx/mime.types;
     default_type application/octet-stream;
     sendfile on;
     keepalive_timeout 65;
-    client_max_body_size 10M;
     
-    access_log $PREFIX/var/log/nginx/access.log;
+    access_log /data/data/com.termux/files/usr/var/log/nginx/access.log;
 
     server {
-        listen $PORT;
+        listen 8081;
         server_name localhost;
         
-        # 重要：网站根目录
-        root $WEB_DIR;
+        root /data/data/com.termux/files/home/storage/shared/zcl;
         index index.html index.htm index.php;
         
-        # 关闭严格目录权限检查
-        disable_symlinks off;
+        # 错误页面
+        error_page 500 502 503 504 /50x.html;
         
-        # 允许访问所有文件
-        location / {
-            try_files \$uri \$uri/ /index.php?\$query_string;
+        location = /50x.html {
+            root /data/data/com.termux/files/usr/share/nginx/html;
         }
         
-        # PHP 配置
-        location ~ \.php\$ {
-            try_files \$uri =404;
+        location / {
+            try_files $uri $uri/ =404;
+        }
+        
+        # PHP 处理
+        location ~ \.php$ {
+            try_files $uri =404;
+            
+            # FastCGI 配置
             fastcgi_pass 127.0.0.1:9000;
             fastcgi_index index.php;
-            fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
-            include $PREFIX/etc/nginx/fastcgi.conf;
+            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            
+            # 包含标准 FastCGI 参数
+            include /data/data/com.termux/files/usr/etc/nginx/fastcgi.conf;
+            
+            # 超时设置
+            fastcgi_connect_timeout 60s;
+            fastcgi_read_timeout 60s;
+            fastcgi_send_timeout 60s;
         }
         
         # 拒绝访问隐藏文件
         location ~ /\. {
             deny all;
+            access_log off;
+            log_not_found off;
         }
     }
 }
 EOF
 
-# 5. 修复 PHP-FPM 配置
-echo "4. 修复 PHP-FPM 配置..."
-PHP_FPM_CONF="$PREFIX/etc/php-fpm.d/www.conf"
-
-if [ -f "$PHP_FPM_CONF" ]; then
-    # 备份原配置
-    cp "$PHP_FPM_CONF" "$PHP_FPM_CONF.bak"
-    
-    # 获取当前用户名
-    CURRENT_USER=$(whoami)
-    
-    # 修复配置
-    sed -i 's|^listen = .*|listen = 127.0.0.1:9000|' "$PHP_FPM_CONF"
-    sed -i "s|^user = .*|user = $CURRENT_USER|" "$PHP_FPM_CONF"
-    sed -i "s|^group = .*|group = $CURRENT_USER|" "$PHP_FPM_CONF"
-    sed -i 's|^;listen.owner = .*|listen.owner = $(whoami)|' "$PHP_FPM_CONF"
-    sed -i 's|^;listen.group = .*|listen.group = $(whoami)|' "$PHP_FPM_CONF"
-    sed -i 's|^;listen.mode = .*|listen.mode = 0660|' "$PHP_FPM_CONF"
-    
-    echo "✅ PHP-FPM 配置已修复"
+# 7. 测试 PHP-FPM 配置
+echo "7. 测试 PHP-FPM..."
+if php-fpm -t; then
+    echo "✅ PHP-FPM 配置测试通过"
 else
-    echo "❌ PHP-FPM 配置文件不存在"
+    echo "❌ PHP-FPM 配置测试失败"
 fi
 
-# 6. 设置正确的所有权（在 Termux 中很重要）
-echo "5. 设置文件所有权..."
-chown -R $(whoami):$(whoami) "$WEB_DIR"
-
-# 7. 检查配置
-echo "6. 检查 Nginx 配置..."
+# 8. 测试 Nginx 配置
+echo "8. 测试 Nginx..."
 if nginx -t; then
-    echo "✅ Nginx 配置语法正确"
+    echo "✅ Nginx 配置测试通过"
 else
-    echo "❌ Nginx 配置有错误"
-    exit 1
+    echo "❌ Nginx 配置测试失败"
+    # 显示详细错误
+    nginx -t
 fi
 
-# 8. 重启服务
-echo "7. 重启服务..."
-pkill -f "nginx: master" 2>/dev/null
-pkill -f php-fpm 2>/dev/null
-sleep 2
+# 9. 启动 PHP-FPM（详细模式）
+echo "9. 启动 PHP-FPM..."
+php-fpm --fpm-config "$PREFIX/etc/php-fpm.conf" -c "$PREFIX/etc/php.ini" -F &
 
-nginx
-php-fpm
-
-sleep 2
-
-# 9. 检查服务状态
-echo "8. 检查服务状态..."
-echo "--- Nginx 进程 ---"
-pgrep -f nginx
-
-echo "--- PHP-FPM 进程 ---" 
-pgrep -f php-fpm
-
-echo "--- 目录权限 ---"
-ls -la "$WEB_DIR"
-
-# 10. 测试访问
-echo "9. 测试访问..."
-echo "等待服务启动..."
+echo "等待 PHP-FPM 启动..."
 sleep 3
 
-if curl -s http://127.0.0.1:$PORT/index.html >/dev/null; then
-    echo "✅ HTML 页面可访问"
+# 10. 检查 PHP-FPM 是否在运行
+if pgrep -f "php-fpm" >/dev/null; then
+    echo "✅ PHP-FPM 启动成功"
+    echo "PHP-FPM 进程:"
+    pgrep -f "php-fpm"
 else
-    echo "❌ HTML 页面访问失败"
+    echo "❌ PHP-FPM 启动失败"
+    echo "检查日志: $PREFIX/var/log/php-fpm.log"
+    tail -20 "$PREFIX/var/log/php-fpm.log"
 fi
 
-if curl -s http://127.0.0.1:$PORT/index.php >/dev/null; then
-    echo "✅ PHP 页面可访问"
+# 11. 检查端口 9000 是否在监听
+echo "检查端口监听状态..."
+if netstat -tulpn 2>/dev/null | grep :9000; then
+    echo "✅ PHP-FPM 正在监听 9000 端口"
 else
-    echo "❌ PHP 页面访问失败"
+    echo "❌ PHP-FPM 未监听 9000 端口"
+    echo "尝试替代检查..."
+    if ss -tulpn 2>/dev/null | grep :9000; then
+        echo "✅ 使用 ss 命令检测到端口"
+    else
+        echo "❌ 端口 9000 未监听"
+    fi
+fi
+
+# 12. 启动 Nginx
+echo "10. 启动 Nginx..."
+nginx
+
+sleep 2
+
+# 13. 检查 Nginx
+if pgrep -f "nginx: master" >/dev/null; then
+    echo "✅ Nginx 启动成功"
+else
+    echo "❌ Nginx 启动失败"
+fi
+
+# 14. 最终测试
+echo "11. 进行最终测试..."
+echo "等待服务完全启动..."
+sleep 3
+
+echo "--- 服务状态检查 ---"
+echo "Nginx 进程: $(pgrep -f 'nginx' | wc -l)"
+echo "PHP-FPM 进程: $(pgrep -f 'php-fpm' | wc -l)"
+
+# 测试访问
+echo "--- 访问测试 ---"
+if curl -s -I http://127.0.0.1:8081/ 2>/dev/null | head -1 | grep -q "200\|302"; then
+    echo "✅ 网站可正常访问"
+else
+    echo "❌ 网站访问失败"
+    echo "响应: $(curl -s -I http://127.0.0.1:8081/ 2>/dev/null | head -1)"
 fi
 
 echo ""
 echo "🎊 修复完成！"
-echo "📍 请访问以下地址测试："
-echo "   HTML 页面: http://127.0.0.1:$PORT/index.html"
-echo "   PHP 页面:  http://127.0.0.1:$PORT/index.php"
+echo "📍 访问地址: http://127.0.0.1:8081"
 echo ""
-echo "如果仍有问题，请查看错误日志："
-echo "tail -f $PREFIX/var/log/nginx/error.log"
+echo "📋 如果仍有问题，请检查："
+echo "1. PHP-FPM 日志: tail -f $PREFIX/var/log/php-fpm.log"
+echo "2. Nginx 错误日志: tail -f $PREFIX/var/log/nginx/error.log"
+echo "3. 端口监听: netstat -tulpn | grep :9000"
