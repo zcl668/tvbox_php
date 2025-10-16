@@ -1,157 +1,182 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# =========================================
-# Termux 修复 sources.list + 一键安装 PHP+Nginx
-# 网站目录: /storage/emulated/0/zcl/php
-# 端口: 8081
-# =========================================
-
 set -e
 
-WEB_DIR="/storage/emulated/0/zcl/php"
-NGINX_CONF="$HOME/etc/nginx/nginx.conf"
-PORT=8081
+# ================================== 彩色打印函数 ==================================
+print_ok()    { echo -e "\033[1;32m[✔] $1\033[0m"; }
+print_err()   { echo -e "\033[1;31m[✖] $1\033[0m"; }
+print_warn()  { echo -e "\033[1;33m[⚠] $1\033[0m"; }
+print_step()  { echo -e "\n\033[1;34m===== $1 =====\033[0m"; }
+print_skip()  { echo -e "\033[1;36m[→] $1\033[0m"; }
 
-echo -e "\033[1;34m[INFO] 修复 sources.list...\033[0m"
+check_package_installed() {
+    dpkg -s "$1" >/dev/null 2>&1
+}
 
-# 备份旧 sources.list
-if [ -f "$PREFIX/etc/apt/sources.list" ]; then
-    cp "$PREFIX/etc/apt/sources.list" "$PREFIX/etc/apt/sources.list.bak"
-    echo -e "\033[1;33m[INFO] 已备份旧 sources.list\033[0m"
-fi
-
-# 写入官方源
-cat > "$PREFIX/etc/apt/sources.list" <<EOF
-deb https://packages.termux.org/apt/termux-main stable main
-EOF
-
-# 更新并升级
-echo -e "\033[1;34m[INFO] 更新并升级 Termux...\033[0m"
-apt update -y
-apt upgrade -y
-
-# 安装依赖
-for pkgname in php php-fpm nginx curl wget unzip git termux-api; do
-    if ! command -v $pkgname >/dev/null 2>&1; then
-        echo -e "\033[1;33m[INFO] 安装 $pkgname...\033[0m"
-        pkg install -y $pkgname
+# ================================== 安装必要依赖 ==================================
+REQUIRED_PKGS=("nginx" "php" "php-fpm")
+for pkg in "${REQUIRED_PKGS[@]}"; do
+    if check_package_installed "$pkg"; then
+        print_skip "$pkg 已安装"
+    else
+        echo "📦 安装 $pkg..."
+        apt update -y
+        apt install -y "$pkg"
+        if check_package_installed "$pkg"; then
+            print_ok "$pkg 安装完成"
+        else
+            print_err "$pkg 安装失败，请手动安装"
+        fi
     fi
 done
 
-# 设置存储权限
-termux-setup-storage
+# ================================== Nginx 配置 ==================================
+PREFIX="$PREFIX"
+NGINX_CONF="$PREFIX/etc/nginx/nginx.conf"
 
-# 创建网站目录
-mkdir -p "$WEB_DIR"
-cd "$WEB_DIR"
+print_step "Nginx 配置"
 
-# 创建测试 PHP 文件
-if [ ! -f "$WEB_DIR/index.php" ]; then
-cat > index.php <<'EOF'
-<?php
-echo "<h1>PHP Server is Running!</h1>";
-echo "<p>Server IP: " . $_SERVER['SERVER_ADDR'] . "</p>";
-echo "<p>Client IP: " . $_SERVER['REMOTE_ADDR'] . "</p>";
-echo "<p>Document Root: " . $_SERVER['DOCUMENT_ROOT'] . "</p>";
-?>
+# mime.types
+if [ ! -f "$PREFIX/etc/nginx/mime.types" ] || [ ! -s "$PREFIX/etc/nginx/mime.types" ]; then
+    cat > "$PREFIX/etc/nginx/mime.types" <<'EOF'
+types {
+    text/html html htm shtml;
+    text/css css;
+    text/xml xml;
+    image/gif gif;
+    image/jpeg jpeg jpg;
+    application/javascript js;
+    application/json json;
+    image/png png;
+    audio/mpeg mp3;
+    video/mp4 mp4;
+}
 EOF
+    print_ok "mime.types 配置完成"
+else
+    print_skip "mime.types 已存在"
 fi
 
-# 获取本机 IP
-get_ip() {
-    local ip
-    ip=$(ip route get 1.2.3.4 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
-    echo "${ip:-127.0.0.1}"
-}
-SERVER_IP=$(get_ip)
-
-# 配置 Nginx
-mkdir -p $HOME/etc/nginx
-cat > $NGINX_CONF <<EOF
+# nginx.conf
+if [ ! -f "$NGINX_CONF" ] || ! grep -q "root /storage/emulated/0/zcl/php;" "$NGINX_CONF"; then
+cat > "$NGINX_CONF" <<'EOF'
 worker_processes 1;
+error_log logs/error.log;
 events { worker_connections 1024; }
 http {
-    include       mime.types;
-    default_type  application/octet-stream;
-    sendfile        on;
-    keepalive_timeout  65;
-
+    include mime.types;
+    default_type application/octet-stream;
+    charset utf-8;
+    sendfile on;
+    keepalive_timeout 65;
     server {
-        listen $PORT;
+        listen 8081 default_server;
         server_name localhost;
-        root $WEB_DIR;
-        index index.php index.html index.htm;
-
+        charset utf-8;
+        root /storage/emulated/0/zcl/php;
+        index index.html index.htm index.php;
         location / {
-            try_files \$uri \$uri/ /index.php?\$query_string;
+            try_files $uri $uri/ $uri.php?$args;
         }
-
-        location ~ \.php\$ {
-            include fastcgi_params;
+        error_page 500 502 503 504 /50x.html;
+        location = /50x.html { root /storage/emulated/0/zcl/php; }
+        location ~ \.php$ {
+            root /storage/emulated/0/zcl/php;
             fastcgi_pass 127.0.0.1:9000;
             fastcgi_index index.php;
-            fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            include fastcgi_params;
         }
     }
 }
 EOF
+    print_ok "Nginx 主配置完成"
+else
+    print_skip "Nginx 主配置已存在"
+fi
 
-# 创建后台管理脚本
-MANAGER="$PREFIX/bin/tvbox-server"
-cat > "$MANAGER" <<EOF
-#!/data/data/com.termux/files/usr/bin/bash
+# ================================== PHP-FPM 配置 ==================================
+PHP_FPM_CONF="$PREFIX/etc/php-fpm.d/www.conf"
+print_step "PHP-FPM 配置"
 
-WEB_DIR="$WEB_DIR"
-NGINX_CONF="$NGINX_CONF"
-SERVER_IP="$SERVER_IP"
-PORT="$PORT"
+if [ -f "$PHP_FPM_CONF" ]; then
+    sed -i 's|listen = /data/data/com.termux/files/usr/var/run/php-fpm.sock|listen = 127.0.0.1:9000|' "$PHP_FPM_CONF"
+    print_ok "PHP-FPM 配置已改为 TCP 模式"
+else
+    print_warn "PHP-FPM 配置文件不存在，跳过"
+fi
 
+# ================================== 网站目录与测试文件 ==================================
+WEB_DIR="/storage/emulated/0/zcl/php"
+print_step "网站目录配置"
+
+mkdir -p "$WEB_DIR"
+print_ok "网站目录已创建：$WEB_DIR"
+
+if [ ! -f "$WEB_DIR/index.php" ]; then
+    echo "<?php echo '<h1>PHP 服务器运行中</h1>'; phpinfo(); ?>" > "$WEB_DIR/index.php"
+    print_ok "index.php 测试文件已创建"
+else
+    print_skip "index.php 已存在"
+fi
+
+# ================================== 启动 Nginx 和 PHP-FPM ==================================
 start_services() {
-    pgrep php >/dev/null || nohup php -S 0.0.0.0:\$PORT -t "\$WEB_DIR" >/dev/null 2>&1 &
-    pgrep nginx >/dev/null || nohup nginx -c "\$NGINX_CONF" >/dev/null 2>&1 &
-    echo "服务已启动: http://\$SERVER_IP:\$PORT"
+    pkill -x nginx >/dev/null 2>&1
+    pkill -x php-fpm >/dev/null 2>&1
+    nginx
+    php-fpm
+    sleep 1
+    print_ok "Nginx & PHP-FPM 已启动"
 }
-
 stop_services() {
-    pkill php
-    pkill nginx
-    echo "服务已停止"
+    pkill -x nginx >/dev/null 2>&1
+    pkill -x php-fpm >/dev/null 2>&1
+    print_warn "Nginx & PHP-FPM 已停止"
 }
 
-status_services() {
-    local php_status=\$(pgrep php >/dev/null && echo "运行中" || echo "已停止")
-    local nginx_status=\$(pgrep nginx >/dev/null && echo "运行中" || echo "已停止")
-    echo "PHP 状态: \$php_status"
-    echo "Nginx 状态: \$nginx_status"
-    echo "访问地址: http://\$SERVER_IP:\$PORT"
+start_services
+
+# ================================== Termux 自启配置 ==================================
+BASHRC="$HOME/.bashrc"
+MARKER="# >>> Termux 自动启动 Nginx & PHP-FPM <<<"
+sed -i "/# >>> Termux 自动启动 Nginx & PHP-FPM/,/# <<< Termux 自动启动 Nginx & PHP-FPM/d" "$BASHRC"
+
+cat >> "$BASHRC" <<'EOF'
+
+# >>> Termux 自动启动 Nginx & PHP-FPM <<<
+WEB_DIR="/storage/emulated/0/zcl/php"
+
+start_nginx() {
+    pkill -x nginx >/dev/null 2>&1
+    nginx
+    sleep 1
 }
 
-case "\$1" in
-    start) start_services ;;
-    stop) stop_services ;;
-    status) status_services ;;
-    restart)
-        stop_services
-        start_services
-        ;;
-    *)
-        echo "用法: tvbox-server {start|stop|status|restart}"
-        ;;
-esac
+start_phpfpm() {
+    pkill -x php-fpm >/dev/null 2>&1
+    php-fpm
+    sleep 1
+}
+
+stop_nginx() {
+    pkill -x nginx >/dev/null 2>&1
+}
+
+stop_phpfpm() {
+    pkill -x php-fpm >/dev/null 2>&1
+}
+
+start_nginx
+start_phpfpm
+
+echo -e "\033[1;32m✅ Nginx & PHP-FPM 已自启\033[0m"
+echo -e "🔹 网站目录: $WEB_DIR"
+echo -e "🔹 本地访问: http://127.0.0.1:8081"
+echo -e "\033[1;33m提示：输入 stop_nginx 或 stop_phpfpm 可停止对应服务\033[0m"
+# <<< Termux 自动启动 Nginx & PHP-FPM <<<
+
 EOF
 
-chmod +x "$MANAGER"
+print_ok "Termux 自启逻辑已配置完成"
 
-# Termux 打开自动启动
-BASHRC="$HOME/.bashrc"
-STARTUP_CMD="pgrep php >/dev/null || nohup php -S 0.0.0.0:$PORT -t $WEB_DIR >/dev/null 2>&1 &; pgrep nginx >/dev/null || nohup nginx -c $NGINX_CONF >/dev/null 2>&1 &"
-grep -qxF "$STARTUP_CMD" "$BASHRC" || echo "$STARTUP_CMD" >> "$BASHRC"
-
-# 启动服务
-$MANAGER start
-
-echo "========================================"
-echo "安装完成！"
-echo "网站目录: $WEB_DIR"
-echo "访问地址: http://$SERVER_IP:$PORT"
-echo "管理命令: tvbox-server {start|stop|status|restart}"
-echo "========================================"
+echo -e "\n\033[1;32m🎉 部署完成，访问 http://127.0.0.1:8081 查看效果\033[0m"
