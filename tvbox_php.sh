@@ -1,54 +1,36 @@
 #!/data/data/com.termux/files/usr/bin/bash
-
-# Termux PHP 环境自动配置脚本
-set -e  # 遇到错误立即退出
-
-# 安装必要的软件包
+set -e
 pkg install -y php
 termux-setup-storage
-
-# 创建PHP服务目录
 PHP_ROOT="/storage/emulated/0/tvbox/php"
 mkdir -p "$PHP_ROOT"
-
-# 创建测试文件
 cat > "$PHP_ROOT/index.php" << 'EOF'
 <?php
 echo "<h1>PHP Server is Running!</h1>";
-echo "<p>Server IP: " . $_SERVER['SERVER_ADDR'] . "</p >";
-echo "<p>Client IP: " . $_SERVER['REMOTE_ADDR'] . "</p >";
-echo "<p>Document Root: " . $_SERVER['DOCUMENT_ROOT'] . "</p >";
+echo "<p>Server IP: " . $_SERVER['SERVER_ADDR'] . "</p>";
+echo "<p>Client IP: " . $_SERVER['REMOTE_ADDR'] . "</p>";
+echo "<p>Document Root: " . $_SERVER['DOCUMENT_ROOT'] . "</p>";
 ?>
 EOF
-
-# 配置启动脚本
 TARGET_FILE="$PREFIX/etc/bash.bashrc"
 STARTUP_CMD="# 自动启动PHP服务
 if ! pgrep -f 'php -S 0.0.0.0:8081' > /dev/null; then
     cd '$PHP_ROOT' && nohup php -S 0.0.0.0:8081 > /dev/null 2>&1 &
     echo \"PHP服务启动中...\"
 fi"
-
-# 检查是否已配置
 if ! grep -q "php -S 0.0.0.0:8081" "$TARGET_FILE"; then
     echo -e "\n$STARTUP_CMD" >> "$TARGET_FILE"
     echo "启动配置已添加到 bash.bashrc"
 fi
-
-# 获取本机IP地址
 get_ip() {
     local ip
     ip=$(ip route get 1.2.3.4 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
     echo "${ip:-127.0.0.1}"
 }
-
 SERVER_IP=$(get_ip)
-
-# 创建独立的管理脚本
 cat > "$PREFIX/bin/tvbox-php" << EOF
 #!/data/data/com.termux/files/usr/bin/bash
-
-case "\$1" in
+case "\\$1" in
     start)
         cd "$PHP_ROOT" && nohup php -S 0.0.0.0:8081 > /dev/null 2>&1 &
         echo "PHP服务已启动: http://$SERVER_IP:8081"
@@ -76,19 +58,13 @@ case "\$1" in
         ;;
 esac
 EOF
-
 chmod +x "$PREFIX/bin/tvbox-php"
-
-# 立即启动服务
 cd "$PHP_ROOT" && nohup php -S 0.0.0.0:8081 > /dev/null 2>&1 &
-
 echo "========================================"
 echo "配置完成！"
 echo "PHP根目录: $PHP_ROOT"
 echo "访问地址: http://$SERVER_IP:8081"
 echo "管理命令: tvbox-php {start|stop|status|restart}"
 echo "========================================"
-
-# 等待一秒让服务启动
 sleep 1
 tvbox-php status
