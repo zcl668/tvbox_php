@@ -1,6 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # =========================================
-# Termux Nginx+PHP 一键安装服务器脚本（后台启动+面板管理）
+# Termux Nginx+PHP 一键安装服务器脚本（自动安装依赖+后台启动+管理命令）
 # 网站目录: /storage/emulated/0/zcl/php
 # 端口: 8081
 # =========================================
@@ -12,10 +12,24 @@ NGINX_CONF="$HOME/etc/nginx/nginx.conf"
 PORT=8081
 
 # ===== 安装依赖 =====
-echo -e "\033[1;34m[INFO] 更新环境并安装依赖...\033[0m"
+echo -e "\033[1;34m[INFO] 更新环境...\033[0m"
 pkg update -y
 pkg upgrade -y
-pkg install -y php php-fpm nginx curl wget unzip git dialog termux-api
+
+# 自动安装 PHP
+if ! command -v php >/dev/null 2>&1; then
+    echo -e "\033[1;33m[INFO] PHP 未安装，正在安装...\033[0m"
+    pkg install -y php
+fi
+
+# 自动安装 Nginx
+if ! command -v nginx >/dev/null 2>&1; then
+    echo -e "\033[1;33m[INFO] Nginx 未安装，正在安装...\033[0m"
+    pkg install -y nginx
+fi
+
+# 安装其他必要软件
+pkg install -y curl wget unzip git termux-api
 
 # ===== 设置存储权限 =====
 termux-setup-storage
@@ -86,22 +100,22 @@ SERVER_IP="$SERVER_IP"
 PORT="$PORT"
 
 start_services() {
-    pgrep php-fpm >/dev/null || nohup php-fpm -D >/dev/null 2>&1 &
+    pgrep php >/dev/null || nohup php -S 0.0.0.0:\$PORT -t "\$WEB_DIR" >/dev/null 2>&1 &
     pgrep nginx >/dev/null || nohup nginx -c "\$NGINX_CONF" >/dev/null 2>&1 &
     echo "服务已启动: http://\$SERVER_IP:\$PORT"
 }
 
 stop_services() {
-    pkill php-fpm
+    pkill php
     pkill nginx
     echo "服务已停止"
 }
 
 status_services() {
+    local php_status=\$(pgrep php >/dev/null && echo "运行中" || echo "已停止")
     local nginx_status=\$(pgrep nginx >/dev/null && echo "运行中" || echo "已停止")
-    local php_status=\$(pgrep php-fpm >/dev/null && echo "运行中" || echo "已停止")
+    echo "PHP 状态: \$php_status"
     echo "Nginx 状态: \$nginx_status"
-    echo "PHP-FPM 状态: \$php_status"
     echo "访问地址: http://\$SERVER_IP:\$PORT"
 }
 
@@ -123,7 +137,7 @@ chmod +x "$MANAGER"
 
 # ===== Termux 打开自动启动 =====
 BASHRC="$HOME/.bashrc"
-STARTUP_CMD="pgrep php-fpm >/dev/null || nohup php-fpm -D >/dev/null 2>&1 &; pgrep nginx >/dev/null || nohup nginx -c $NGINX_CONF >/dev/null 2>&1 &"
+STARTUP_CMD="pgrep php >/dev/null || nohup php -S 0.0.0.0:$PORT -t $WEB_DIR >/dev/null 2>&1 &; pgrep nginx >/dev/null || nohup nginx -c $NGINX_CONF >/dev/null 2>&1 &"
 grep -qxF "$STARTUP_CMD" "$BASHRC" || echo "$STARTUP_CMD" >> "$BASHRC"
 
 # ===== 启动服务 =====
