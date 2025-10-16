@@ -1,6 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # =========================================
-# Termux Nginx+PHP 一键安装服务器脚本（自动安装依赖+后台启动+管理命令）
+# Termux 修复 sources.list + 一键安装 PHP+Nginx
 # 网站目录: /storage/emulated/0/zcl/php
 # 端口: 8081
 # =========================================
@@ -11,34 +11,40 @@ WEB_DIR="/storage/emulated/0/zcl/php"
 NGINX_CONF="$HOME/etc/nginx/nginx.conf"
 PORT=8081
 
-# ===== 安装依赖 =====
-echo -e "\033[1;34m[INFO] 更新环境...\033[0m"
-pkg update -y
-pkg upgrade -y
+echo -e "\033[1;34m[INFO] 修复 sources.list...\033[0m"
 
-# 自动安装 PHP
-if ! command -v php >/dev/null 2>&1; then
-    echo -e "\033[1;33m[INFO] PHP 未安装，正在安装...\033[0m"
-    pkg install -y php
+# 备份旧 sources.list
+if [ -f "$PREFIX/etc/apt/sources.list" ]; then
+    cp "$PREFIX/etc/apt/sources.list" "$PREFIX/etc/apt/sources.list.bak"
+    echo -e "\033[1;33m[INFO] 已备份旧 sources.list\033[0m"
 fi
 
-# 自动安装 Nginx
-if ! command -v nginx >/dev/null 2>&1; then
-    echo -e "\033[1;33m[INFO] Nginx 未安装，正在安装...\033[0m"
-    pkg install -y nginx
-fi
+# 写入官方源
+cat > "$PREFIX/etc/apt/sources.list" <<EOF
+deb https://packages.termux.org/apt/termux-main stable main
+EOF
 
-# 安装其他必要软件
-pkg install -y curl wget unzip git termux-api
+# 更新并升级
+echo -e "\033[1;34m[INFO] 更新并升级 Termux...\033[0m"
+apt update -y
+apt upgrade -y
 
-# ===== 设置存储权限 =====
+# 安装依赖
+for pkgname in php php-fpm nginx curl wget unzip git termux-api; do
+    if ! command -v $pkgname >/dev/null 2>&1; then
+        echo -e "\033[1;33m[INFO] 安装 $pkgname...\033[0m"
+        pkg install -y $pkgname
+    fi
+done
+
+# 设置存储权限
 termux-setup-storage
 
-# ===== 创建网站目录 =====
+# 创建网站目录
 mkdir -p "$WEB_DIR"
 cd "$WEB_DIR"
 
-# ===== 创建测试 index.php =====
+# 创建测试 PHP 文件
 if [ ! -f "$WEB_DIR/index.php" ]; then
 cat > index.php <<'EOF'
 <?php
@@ -50,7 +56,7 @@ echo "<p>Document Root: " . $_SERVER['DOCUMENT_ROOT'] . "</p>";
 EOF
 fi
 
-# ===== 获取本机IP =====
+# 获取本机 IP
 get_ip() {
     local ip
     ip=$(ip route get 1.2.3.4 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
@@ -58,7 +64,7 @@ get_ip() {
 }
 SERVER_IP=$(get_ip)
 
-# ===== 配置 Nginx =====
+# 配置 Nginx
 mkdir -p $HOME/etc/nginx
 cat > $NGINX_CONF <<EOF
 worker_processes 1;
@@ -89,7 +95,7 @@ http {
 }
 EOF
 
-# ===== 创建后台管理脚本 =====
+# 创建后台管理脚本
 MANAGER="$PREFIX/bin/tvbox-server"
 cat > "$MANAGER" <<EOF
 #!/data/data/com.termux/files/usr/bin/bash
@@ -135,12 +141,12 @@ EOF
 
 chmod +x "$MANAGER"
 
-# ===== Termux 打开自动启动 =====
+# Termux 打开自动启动
 BASHRC="$HOME/.bashrc"
 STARTUP_CMD="pgrep php >/dev/null || nohup php -S 0.0.0.0:$PORT -t $WEB_DIR >/dev/null 2>&1 &; pgrep nginx >/dev/null || nohup nginx -c $NGINX_CONF >/dev/null 2>&1 &"
 grep -qxF "$STARTUP_CMD" "$BASHRC" || echo "$STARTUP_CMD" >> "$BASHRC"
 
-# ===== 启动服务 =====
+# 启动服务
 $MANAGER start
 
 echo "========================================"
