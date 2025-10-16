@@ -1,30 +1,78 @@
 #!/bin/bash
-echo "🔄 使用 PHP 内置服务器作为备用方案..."
+# ===============================================
+# 精简面板脚本 - Termux/安卓环境
+===============================================
 
-# 停止现有服务
-pkill -f nginx
-pkill -f php-fpm
+PREFIX=$HOME
+WEB_DIR="/storage/emulated/0/lz"
 
-# 启动 PHP 内置服务器
-cd /storage/emulated/0/zcl
-nohup php -S 0.0.0.0:8081 > $PREFIX/var/log/php-builtin-server.log 2>&1 &
+# 彩色输出函数
+color() { echo -e "\033[$1m$2\033[0m"; }
+print_ok() { echo -e "$(color 32 "[✔]") $1"; }
+print_warn() { echo -e "$(color 33 "[!]") $1"; }
+print_err() { echo -e "$(color 31 "[✘]") $1"; }
+print_skip() { echo -e "$(color 36 "[→]") $1"; }
 
-echo "等待服务器启动..."
-sleep 3
+# ================== Nginx 配置 ==================
+NGINX_CONF="$PREFIX/etc/nginx/nginx.conf"
+if [ ! -f "$NGINX_CONF" ] || ! grep -q "root $WEB_DIR;" "$NGINX_CONF"; then
+    cat > "$NGINX_CONF" <<EOF
+worker_processes 1;
+error_log logs/error.log;
 
-if pgrep -f "php -S" >/dev/null; then
-    echo "✅ PHP 内置服务器启动成功！"
-    echo "📍 访问地址: http://127.0.0.1:8081"
-    echo "📋 日志文件: $PREFIX/var/log/php-builtin-server.log"
-    
-    # 测试访问
-    if curl -s http://127.0.0.1:8081/index.php >/dev/null; then
-        echo "🎉 PHP 页面可以正常访问了！"
-    else
-        echo "❌ 仍然无法访问，请检查日志"
-        tail -10 $PREFIX/var/log/php-builtin-server.log
-    fi
+events {
+    worker_connections 1024;
+}
+
+http {
+    include mime.types;
+    default_type application/octet-stream;
+    charset utf-8;
+    sendfile on;
+    keepalive_timeout 65;
+
+    server {
+        listen 8081 default_server;
+        server_name localhost;
+        charset utf-8;
+        root $WEB_DIR;
+        index index.html index.htm index.php;
+
+        location / {
+            try_files \$uri \$uri/ \$uri.php?\$args;
+        }
+
+        error_page 500 502 503 504 /50x.html;
+        location = /50x.html {
+            root $WEB_DIR;
+        }
+
+        location ~ \.php\$ {
+            root $WEB_DIR;
+            fastcgi_pass 127.0.0.1:9000;
+            fastcgi_index index.php;
+            fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+            include fastcgi_params;
+        }
+    }
+}
+EOF
+    print_ok "Nginx 主配置完成（端口8081）"
 else
-    echo "❌ PHP 内置服务器启动失败"
-    tail -10 $PREFIX/var/log/php-builtin-server.log
+    print_skip "Nginx 主配置已存在且有效，跳过"
 fi
+
+# ================== 启动 Nginx ==================
+echo "启动 Nginx..."
+nginx -c "$NGINX_CONF"
+print_ok "网站已启动，访问：http://localhost:8081/index.php"
+
+# ================== 面板显示 ==================
+echo -e "  🔹 网站目录: $(color 36 "$WEB_DIR")"
+echo -e "  📌 测试页面访问: http://localhost:8081/index.php"
+
+# ================== 后续功能保留 ==================
+# 这里可以添加你其他保留的功能，例如：
+# - 文件管理
+# - 下载功能
+# - PHP 脚本执行等
