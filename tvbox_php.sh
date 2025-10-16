@@ -1,28 +1,32 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # =========================================
-# Termux PHP 自动配置脚本（可后台启动/停止/状态/重启）
+# Termux Nginx+PHP 一键安装服务器脚本（后台启动+面板管理）
 # 网站目录: /storage/emulated/0/zcl/php
+# 端口: 8081
 # =========================================
 
-set -e  # 遇到错误立即退出
+set -e
 
-# ===== 检查必要命令 =====
-for cmd in php termux-setup-storage; do
-    command -v $cmd >/dev/null 2>&1 || { echo "$cmd 未安装，请先安装"; exit 1; }
-done
+WEB_DIR="/storage/emulated/0/zcl/php"
+NGINX_CONF="$HOME/etc/nginx/nginx.conf"
+PORT=8081
 
-# ===== 安装 PHP =====
-pkg install -y php
+# ===== 安装依赖 =====
+echo -e "\033[1;34m[INFO] 更新环境并安装依赖...\033[0m"
+pkg update -y
+pkg upgrade -y
+pkg install -y php php-fpm nginx curl wget unzip git dialog termux-api
 
 # ===== 设置存储权限 =====
 termux-setup-storage
 
-# ===== 创建 PHP 根目录 =====
-PHP_ROOT="/storage/emulated/0/zcl/php"
-mkdir -p "$PHP_ROOT"
+# ===== 创建网站目录 =====
+mkdir -p "$WEB_DIR"
+cd "$WEB_DIR"
 
 # ===== 创建测试 index.php =====
-cat > "$PHP_ROOT/index.php" <<'EOF'
+if [ ! -f "$WEB_DIR/index.php" ]; then
+cat > index.php <<'EOF'
 <?php
 echo "<h1>PHP Server is Running!</h1>";
 echo "<p>Server IP: " . $_SERVER['SERVER_ADDR'] . "</p>";
@@ -30,8 +34,9 @@ echo "<p>Client IP: " . $_SERVER['REMOTE_ADDR'] . "</p>";
 echo "<p>Document Root: " . $_SERVER['DOCUMENT_ROOT'] . "</p>";
 ?>
 EOF
+fi
 
-# ===== 获取本机 IP 地址 =====
+# ===== 获取本机IP =====
 get_ip() {
     local ip
     ip=$(ip route get 1.2.3.4 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
@@ -39,78 +44,94 @@ get_ip() {
 }
 SERVER_IP=$(get_ip)
 
-# ===== 配置 Termux 打开自动启动 =====
-TARGET_FILE="$PREFIX/etc/bash.bashrc"
-STARTUP_CMD="# 自动启动 PHP 服务
-if ! pgrep -f 'php -S 0.0.0.0:8081' >/dev/null; then
-    cd '$PHP_ROOT' && nohup php -S 0.0.0.0:8081 >/dev/null 2>&1 &
-    echo 'PHP服务启动中...'
-fi"
+# ===== 配置 Nginx =====
+mkdir -p $HOME/etc/nginx
+cat > $NGINX_CONF <<EOF
+worker_processes 1;
+events { worker_connections 1024; }
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+    sendfile        on;
+    keepalive_timeout  65;
 
-if ! grep -q "php -S 0.0.0.0:8081" "$TARGET_FILE"; then
-    echo -e "\n$STARTUP_CMD" >> "$TARGET_FILE"
-    echo "启动配置已添加到 bash.bashrc"
-fi
+    server {
+        listen $PORT;
+        server_name localhost;
+        root $WEB_DIR;
+        index index.php index.html index.htm;
 
-# ===== 创建独立管理脚本 =====
-MANAGER="$PREFIX/bin/tvbox-php"
+        location / {
+            try_files \$uri \$uri/ /index.php?\$query_string;
+        }
+
+        location ~ \.php\$ {
+            include fastcgi_params;
+            fastcgi_pass 127.0.0.1:9000;
+            fastcgi_index index.php;
+            fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+        }
+    }
+}
+EOF
+
+# ===== 创建后台管理脚本 =====
+MANAGER="$PREFIX/bin/tvbox-server"
 cat > "$MANAGER" <<EOF
 #!/data/data/com.termux/files/usr/bin/bash
 
-PHP_ROOT="$PHP_ROOT"
+WEB_DIR="$WEB_DIR"
+NGINX_CONF="$NGINX_CONF"
 SERVER_IP="$SERVER_IP"
+PORT="$PORT"
 
-start_service() {
-    if ! pgrep -f "php -S 0.0.0.0:8081" >/dev/null; then
-        cd "\$PHP_ROOT" && nohup php -S 0.0.0.0:8081 >/dev/null 2>&1 &
-        echo "PHP服务已启动: http://\$SERVER_IP:8081"
-    else
-        echo "PHP服务已在运行: http://\$SERVER_IP:8081"
-    fi
+start_services() {
+    pgrep php-fpm >/dev/null || nohup php-fpm -D >/dev/null 2>&1 &
+    pgrep nginx >/dev/null || nohup nginx -c "\$NGINX_CONF" >/dev/null 2>&1 &
+    echo "服务已启动: http://\$SERVER_IP:\$PORT"
 }
 
-stop_service() {
-    pkill -f "php -S 0.0.0.0:8081" && echo "PHP服务已停止"
+stop_services() {
+    pkill php-fpm
+    pkill nginx
+    echo "服务已停止"
 }
 
-status_service() {
-    if pgrep -f "php -S 0.0.0.0:8081" >/dev/null; then
-        echo "PHP服务运行中: http://\$SERVER_IP:8081"
-    else
-        echo "PHP服务未运行"
-    fi
+status_services() {
+    local nginx_status=\$(pgrep nginx >/dev/null && echo "运行中" || echo "已停止")
+    local php_status=\$(pgrep php-fpm >/dev/null && echo "运行中" || echo "已停止")
+    echo "Nginx 状态: \$nginx_status"
+    echo "PHP-FPM 状态: \$php_status"
+    echo "访问地址: http://\$SERVER_IP:\$PORT"
 }
 
 case "\$1" in
-    start) start_service ;;
-    stop) stop_service ;;
-    status) status_service ;;
+    start) start_services ;;
+    stop) stop_services ;;
+    status) status_services ;;
     restart)
-        stop_service
-        start_service
+        stop_services
+        start_services
         ;;
     *)
-        echo "用法: tvbox-php {start|stop|status|restart}"
-        echo "PHP根目录: \$PHP_ROOT"
-        echo "访问地址: http://\$SERVER_IP:8081"
+        echo "用法: tvbox-server {start|stop|status|restart}"
         ;;
 esac
 EOF
 
 chmod +x "$MANAGER"
 
+# ===== Termux 打开自动启动 =====
+BASHRC="$HOME/.bashrc"
+STARTUP_CMD="pgrep php-fpm >/dev/null || nohup php-fpm -D >/dev/null 2>&1 &; pgrep nginx >/dev/null || nohup nginx -c $NGINX_CONF >/dev/null 2>&1 &"
+grep -qxF "$STARTUP_CMD" "$BASHRC" || echo "$STARTUP_CMD" >> "$BASHRC"
+
 # ===== 启动服务 =====
-cd "$PHP_ROOT"
-nohup php -S 0.0.0.0:8081 >/dev/null 2>&1 &
+$MANAGER start
 
-# ===== 输出信息 =====
 echo "========================================"
-echo "配置完成！"
-echo "PHP根目录: $PHP_ROOT"
-echo "访问地址: http://$SERVER_IP:8081"
-echo "管理命令: tvbox-php {start|stop|status|restart}"
+echo "安装完成！"
+echo "网站目录: $WEB_DIR"
+echo "访问地址: http://$SERVER_IP:$PORT"
+echo "管理命令: tvbox-server {start|stop|status|restart}"
 echo "========================================"
-
-# ===== 等待一秒并显示状态 =====
-sleep 1
-tvbox-php status
