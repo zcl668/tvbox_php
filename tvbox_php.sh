@@ -1,7 +1,8 @@
 #!/bin/bash
 # =========================================
-# Termux Nginx+PHP 一键部署面板（彩色状态自检+Termux启动自动运行）
-# 网站目录固定: /storage/emulated/0/zcl/php
+# Termux Nginx+PHP 一键部署面板（后台启动+面板控制）
+# 网站目录: /storage/emulated/0/zcl/php
+# 端口: 8081
 # =========================================
 
 WEB_DIR="/storage/emulated/0/zcl/php"
@@ -18,7 +19,7 @@ pkg install -y php php-fpm nginx curl wget unzip git dialog termux-api
 mkdir -p "$WEB_DIR"
 cd "$WEB_DIR"
 
-# ===== 下载彩色面板 =====
+# ===== 创建彩色面板 =====
 if [ ! -f "$WEB_DIR/index.php" ]; then
 echo -e "\033[1;32m[INFO] 创建管理面板...\033[0m"
 cat > index.php <<'EOF'
@@ -27,6 +28,7 @@ function color($text,$color="green"){
     $colors=["green"=>"#2ecc71","red"=>"#e74c3c","yellow"=>"#f1c40f","blue"=>"#3498db"];
     return "<span style='color:".$colors[$color]."'>".$text."</span>";
 }
+
 function service_status($name){
     $output = shell_exec("pgrep $name");
     return $output ? color("运行中","green") : color("已停止","red");
@@ -46,29 +48,34 @@ button{padding:8px 12px; margin:5px; cursor:pointer;}
 </head>
 <body>
 <h2>Termux Nginx+PHP 面板</h2>
-<p>Nginx 状态: <?php echo service_status("nginx"); ?></p >
-<p>PHP-FPM 状态: <?php echo service_status("php-fpm"); ?></p >
+<p>Nginx 状态: <?php echo service_status("nginx"); ?></p>
+<p>PHP-FPM 状态: <?php echo service_status("php-fpm"); ?></p>
+
 <form method="post">
 <button type="submit" name="action" value="start_nginx">启动 Nginx</button>
 <button type="submit" name="action" value="stop_nginx">停止 Nginx</button>
 <button type="submit" name="action" value="start_php">启动 PHP-FPM</button>
 <button type="submit" name="action" value="stop_php">停止 PHP-FPM</button>
+<button type="submit" name="action" value="stop_all">一键停止所有服务</button>
 </form>
+
 <pre>
 <?php
 if(isset($_POST['action'])){
     $cmd="";
     switch($_POST['action']){
-        case "start_nginx": $cmd="nginx -c $GLOBALS[NGINX_CONF]"; break;
-        case "stop_nginx": $cmd="nginx -s stop"; break;
-        case "start_php": $cmd="php-fpm -D"; break;
+        case "start_nginx": $cmd="nohup nginx -c $GLOBALS[NGINX_CONF] >/dev/null 2>&1 &"; break;
+        case "stop_nginx": $cmd="pkill nginx"; break;
+        case "start_php": $cmd="nohup php-fpm -D >/dev/null 2>&1 &"; break;
         case "stop_php": $cmd="pkill php-fpm"; break;
+        case "stop_all": $cmd="pkill php-fpm; pkill nginx"; break;
     }
     echo "执行命令: ".htmlspecialchars($cmd)."\n";
     echo shell_exec($cmd);
 }
 ?>
 </pre>
+
 <h3>存储权限</h3>
 <pre>
 <?php
@@ -76,6 +83,7 @@ echo "Web 目录: ".$GLOBALS['WEB_DIR']."\n";
 echo "可写权限: ".(is_writable($GLOBALS['WEB_DIR'])?"是":"否")."\n";
 ?>
 </pre>
+
 </body>
 </html>
 EOF
@@ -98,9 +106,11 @@ http {
         server_name localhost;
         root $WEB_DIR;
         index index.php index.html index.htm;
+
         location / {
             try_files \$uri \$uri/ /index.php?\$query_string;
         }
+
         location ~ \.php\$ {
             include fastcgi_params;
             fastcgi_pass 127.0.0.1:9000;
@@ -111,17 +121,16 @@ http {
 }
 EOF
 
-# ===== 启动服务 =====
-echo -e "\033[1;32m[INFO] 启动服务...\033[0m"
-pgrep php-fpm >/dev/null || php-fpm -D
-pgrep nginx >/dev/null || nginx -c $NGINX_CONF
+# ===== 后台启动服务 =====
+pgrep php-fpm >/dev/null || nohup php-fpm -D >/dev/null 2>&1 &
+pgrep nginx >/dev/null || nohup nginx -c $NGINX_CONF >/dev/null 2>&1 &
 
-# ===== Termux 启动自运行 =====
+# ===== Termux 打开自动启动 =====
 BASHRC="$HOME/.bashrc"
-STARTUP_CMD="pgrep php-fpm >/dev/null || php-fpm -D; pgrep nginx >/dev/null || nginx -c $NGINX_CONF"
+STARTUP_CMD="pgrep php-fpm >/dev/null || nohup php-fpm -D >/dev/null 2>&1 &; pgrep nginx >/dev/null || nohup nginx -c $NGINX_CONF >/dev/null 2>&1 &"
 grep -qxF "$STARTUP_CMD" "$BASHRC" || echo "$STARTUP_CMD" >> "$BASHRC"
 
 echo -e "\033[1;33m[INFO] 安装完成！\033[0m"
 echo -e "访问地址: \033[1;36mhttp://localhost:$PORT\033[0m"
 echo -e "网站目录: $WEB_DIR"
-echo -e "\033[1;33m[INFO] 每次打开 Termux 将自动启动 Nginx+PHP\033[0m"
+echo -e "\033[1;33m[INFO] 每次打开 Termux 自动启动后台服务，面板可控制开启/停止，包括一键停止所有服务\033[0m"
