@@ -14,11 +14,11 @@ echo "<p>Document Root: " . $_SERVER['DOCUMENT_ROOT'] . "</p>";
 EOF
 TARGET_FILE="$PREFIX/etc/bash.bashrc"
 STARTUP_CMD="# 自动启动PHP服务
-if ! pgrep -f 'php -S 0.0.0.0:8081' > /dev/null; then
-    cd '$PHP_ROOT' && nohup php -S 0.0.0.0:8081 > /dev/null 2>&1 &
+if ! pgrep -f 'php -S 127.0.0.1:8081' > /dev/null; then
+    cd '$PHP_ROOT' && nohup php -S 127.0.0.1:8081 > /dev/null 2>&1 &
     echo \"PHP服务启动中...\"
 fi"
-if ! grep -q "php -S 0.0.0.0:8081" "$TARGET_FILE"; then
+if ! grep -q "php -S 127.0.0.1:8081" "$TARGET_FILE"; then
     echo -e "\n$STARTUP_CMD" >> "$TARGET_FILE"
     echo "启动配置已添加到 bash.bashrc"
 fi
@@ -32,23 +32,23 @@ cat > "$PREFIX/bin/tvbox-php" << EOF
 #!/data/data/com.termux/files/usr/bin/bash
 case "\\$1" in
     start)
-        cd "$PHP_ROOT" && nohup php -S 0.0.0.0:8081 > /dev/null 2>&1 &
+        cd "$PHP_ROOT" && nohup php -S 127.0.0.1:8081 > /dev/null 2>&1 &
         echo "PHP服务已启动: http://$SERVER_IP:8081"
         ;;
     stop)
-        pkill -f "php -S 0.0.0.0:8081"
+        pkill -f "php -S 127.0.0.1:8081"
         echo "PHP服务已停止"
         ;;
     status)
-        if pgrep -f "php -S 0.0.0.0:8081" > /dev/null; then
+        if pgrep -f "php -S 127.0.0.1:8081" > /dev/null; then
             echo "PHP服务运行中: http://$SERVER_IP:8081"
         else
             echo "PHP服务未运行"
         fi
         ;;
     restart)
-        pkill -f "php -S 0.0.0.0:8081"
-        cd "$PHP_ROOT" && nohup php -S 0.0.0.0:8081 > /dev/null 2>&1 &
+        pkill -f "php -S 127.0.0.1:8081"
+        cd "$PHP_ROOT" && nohup php -S 127.0.0.1:8081 > /dev/null 2>&1 &
         echo "PHP服务已重启: http://$SERVER_IP:8081"
         ;;
     *)
@@ -59,7 +59,7 @@ case "\\$1" in
 esac
 EOF
 chmod +x "$PREFIX/bin/tvbox-php"
-cd "$PHP_ROOT" && nohup php -S 0.0.0.0:8081 > /dev/null 2>&1 &
+cd "$PHP_ROOT" && nohup php -S 127.0.0.1:8081 > /dev/null 2>&1 &
 echo "========================================"
 echo "配置完成！"
 echo "PHP根目录: $PHP_ROOT"
