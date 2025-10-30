@@ -57,7 +57,7 @@ HEADERS = {
 REQUEST_TIMEOUT = 15  # seconds
 DB_FILENAME = "loveq_spider.db"
 # 支持的媒体后缀（用于直接正则抓取）
-MEDIA_EXTS = [r"\.mp3\b", r"\.m4a\b", r"\.mp4\b", r"\.m3u8\b", r"\.ts\b", r"\.aac\b", r"\.flv\b", r"\.ogg\b"]
+MEDIA_EXTS = [r"\.mp3\b", r"\.wma\b", r"\.mp4\b", r"\.m3u8\b", r"\.ts\b", r"\.aac\b", r"\.flv\b", r"\.ogg\b"]
 
 # -------------------- 工具函数 --------------------
 def safe_mkdir(path: str):
