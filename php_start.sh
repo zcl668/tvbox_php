@@ -1,3 +1,8 @@
+# 删除原有文件
+rm -f php_start.sh
+
+# 手动创建新脚本
+cat > php_start.sh << 'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
 # --------------------------------------
 # Termux PHP 一键安装与自动启动脚本
@@ -30,3 +35,10 @@ source "$TARGET_FILE"
 echo "✅ 配置完成！"
 echo "📁 PHP根目录: /storage/emulated/0/TVBoxPhpJar/木凡/php"
 echo "🌐 启动地址: http://$(ip route get 1.2.3.4 | awk '{print $7}' | head -1):8081"
+EOF
+
+# 赋予执行权限
+chmod +x php_start.sh
+
+# 运行脚本
+./php_start.sh
