@@ -27,6 +27,8 @@ delete_project() {
         "/root/drpy-node"
         "/home/*/drpy-node"
         "/opt/drpy-node"
+        "/www/wwwroot/"
+        "/www/wwwroot/anru.8518898.xyz/"
         "$(dirname "$(pwd)")/drpy-node"
     )
     
