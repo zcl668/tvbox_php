@@ -1,20 +1,3 @@
-#!/bin/bash
-
-# 定义颜色
-RED='\033[31m'
-GREEN='\033[32m'
-YELLOW='\033[33m'
-BLUE='\033[34m'
-PH='\033[35m'
-QS='\033[36m'
-NC='\033[0m' # No Color
-
-# 检查当前用户是否为root用户
-if [ "$(id -u)" -ne 0 ]; then
-    echo -e "${RED}错误：此脚本需要以root用户身份运行。${NC}"
-    exit 1
-fi
-
 # 删除功能函数
 delete_project() {
     echo -e "${RED}======================================================================${NC}"
@@ -27,8 +10,8 @@ delete_project() {
         "/root/drpy-node"
         "/home/*/drpy-node"
         "/opt/drpy-node"
-        "/www/wwwroot/"
-        "/www/wwwroot/anru.8518898.xyz/"
+        "/www/wwwroot/drpy-node"
+        "/www/wwwroot/anru.8518898.xyz/drpy-node"
         "$(dirname "$(pwd)")/drpy-node"
     )
     
@@ -41,6 +24,17 @@ delete_project() {
             fi
         done
     done
+    
+    # 额外查找 /www/wwwroot/ 目录下的所有 drpy-node 项目
+    if [ -d "/www/wwwroot" ]; then
+        echo -e "${YELLOW}正在搜索 /www/wwwroot/ 目录下的 drpy-node 项目...${NC}"
+        while IFS= read -r -d '' dir; do
+            if [ -d "$dir" ]; then
+                found_dirs+=("$dir")
+                echo -e "${GREEN}找到项目: $dir${NC}"
+            fi
+        done < <(find "/www/wwwroot" -maxdepth 2 -type d -name "drpy-node" -print0 2>/dev/null)
+    fi
     
     if [ ${#found_dirs[@]} -eq 0 ]; then
         echo -e "${YELLOW}未找到 drpy-node 项目目录。${NC}"
@@ -119,20 +113,23 @@ delete_project() {
         echo -e "${YELLOW}项目目录不存在，跳过删除。${NC}"
     fi
     
-    # 删除备份文件（在当前目录和项目目录中）
+    # 删除备份文件（在更多目录中查找）
     echo -e "${YELLOW}正在清理备份文件...${NC}"
     find "/root" -name "*.backup_*" -type f -delete 2>/dev/null
     find "/home" -name "*.backup_*" -type f -delete 2>/dev/null
     find "/opt" -name "*.backup_*" -type f -delete 2>/dev/null
+    find "/www/wwwroot" -name "*.backup_*" -type f -delete 2>/dev/null
     find "$(pwd)" -name "*.backup_*" -type f -delete 2>/dev/null
     echo -e "${GREEN}备份文件清理完成。${NC}"
     
-    # 删除Python虚拟环境
+    # 删除Python虚拟环境（增加新目录）
     local venv_dirs=(
         "$selected_dir/.venv"
         "/root/drpy-node/.venv"
         "/home/*/drpy-node/.venv"
         "/opt/drpy-node/.venv"
+        "/www/wwwroot/drpy-node/.venv"
+        "/www/wwwroot/anru.8518898.xyz/drpy-node/.venv"
     )
     
     for venv_dir in "${venv_dirs[@]}"; do
@@ -177,11 +174,12 @@ delete_project() {
                 echo -e "${RED}PM2 删除失败。${NC}"
             fi
             
-            # 删除PM2相关目录和配置
+            # 删除PM2相关目录和配置（增加新目录）
             local pm2_dirs=(
                 "$HOME/.pm2"
                 "/root/.pm2"
                 "/home/*/.pm2"
+                "/www/wwwroot/.pm2"
             )
             
             for pm2_dir in "${pm2_dirs[@]}"; do
@@ -205,11 +203,12 @@ delete_project() {
         if [[ "$delete_nvm" == "y" || "$delete_nvm" == "Y" ]]; then
             echo -e "${YELLOW}正在删除 NVM 和 Node.js...${NC}"
             
-            # 删除NVM目录
+            # 删除NVM目录（增加新目录）
             local nvm_dirs=(
                 "$HOME/.nvm"
                 "/root/.nvm"
                 "/home/*/.nvm"
+                "/www/wwwroot/.nvm"
                 "$NVM_DIR"
             )
             
@@ -223,7 +222,7 @@ delete_project() {
                 done
             done
             
-            # 从shell配置文件中移除NVM相关行
+            # 从shell配置文件中移除NVM相关行（增加新目录）
             local shell_files=(
                 "$HOME/.bashrc"
                 "$HOME/.bash_profile"
@@ -233,6 +232,8 @@ delete_project() {
                 "/root/.bash_profile"
                 "/root/.zshrc"
                 "/root/.profile"
+                "/www/wwwroot/.bashrc"
+                "/www/wwwroot/.bash_profile"
             )
             
             for shell_file in "${shell_files[@]}"; do
@@ -262,56 +263,3 @@ delete_project() {
     echo -e "${GREEN}drpy-node 项目删除完成！${NC}"
     return 0
 }
-
-# 显示菜单函数
-show_menu() {
-    while true; do
-        echo -e "${PH}======================================================================${NC}"
-        echo -e "${PH}                    drpy-node 项目管理脚本${NC}"
-        echo -e "${PH}======================================================================${NC}"
-        echo -e "${GREEN}  1. 安装/更新 drpy-node 项目${NC}"
-        echo -e "${RED}  2. 删除 drpy-node 项目${NC}"
-        echo -e "${BLUE}  3. 退出脚本${NC}"
-        echo -e "${PH}======================================================================${NC}"
-        echo -ne "${PH}请选择操作 (1-3) 默认10秒后选择安装/更新(1): ${NC}"
-        read -t 10 choice
-        choice=${choice:-"1"}
-        
-        case $choice in
-            1)
-                echo -e "${GREEN}选择安装/更新操作...${NC}"
-                break
-                ;;
-            2)
-                if delete_project; then
-                    echo -e "${YELLOW}删除完成，返回主菜单...${NC}"
-                    echo -ne "${YELLOW}是否要立即安装新项目？(y/n) 默认10秒后返回主菜单(n): ${NC}"
-                    read -t 10 reinstall
-                    reinstall=${reinstall:-"n"}
-                    if [[ "$reinstall" == "y" || "$reinstall" == "Y" ]]; then
-                        echo -e "${GREEN}开始安装新项目...${NC}"
-                        break
-                    else
-                        continue
-                    fi
-                else
-                    echo -e "${YELLOW}删除失败或取消，返回主菜单...${NC}"
-                    continue
-                fi
-                ;;
-            3)
-                echo -e "${GREEN}退出脚本。${NC}"
-                exit 0
-                ;;
-            *)
-                echo -e "${YELLOW}无效选择，使用默认安装/更新操作。${NC}"
-                break
-                ;;
-        esac
-    done
-}
-
-# 在脚本开始处调用菜单函数
-show_menu
-
-# ... 其余脚本内容保持不变 ...
