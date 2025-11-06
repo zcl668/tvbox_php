@@ -1,20 +1,21 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # =====================================================
-# 📦 Termux 通用环境安装脚本 v4
+# 📦 Termux 通用环境安装脚本 v6
 # 功能：
 #   ✅ Python Flask 默认端口 8082
 #   ✅ PHP 默认端口 8081
-#   ✅ 网站目录：/storage/emulated/0/lz/php
-#   ✅ Python 项目目录：/storage/emulated/0/lz/python
+#   ✅ PHP 网站目录：/storage/emulated/0/lz/php
+#   ✅ Python 项目目录：/storage/emulated/0/lz/py/sy
 #   ✅ 一键修复模式 (--fix)
 #   ✅ 可禁用自启动 (--no-auto)
+#   ✅ 完全兼容 Termux
 # =====================================================
 
 set -e
 
 # 默认目录
 PHP_DIR="/storage/emulated/0/lz/php"
-PY_DIR="/storage/emulated/0/lz/python"
+PY_DIR="/storage/emulated/0/lz/py/sy"
 BASHRC_FILE="$PREFIX/etc/bash.bashrc"
 
 # 参数解析
@@ -77,10 +78,10 @@ fi
 # =====================================================
 # 🧱 正常安装流程
 # =====================================================
-echo "🧰 [1/9] 更新系统..."
+echo "🧰 [1/8] 更新系统..."
 pkg update -y && pkg upgrade -y
 
-echo "🐍 [2/9] 安装 Python 及依赖..."
+echo "🐍 [2/8] 安装 Python 及依赖..."
 pkg install -y python libxml2 libxslt clang openssl-tool
 
 # pip 检查
@@ -93,26 +94,26 @@ echo "🔎 当前 pip 版本:"
 pip -V || echo "⚠️ pip 未检测到"
 
 # Python 库安装
-echo "📦 [3/9] 安装 Python 库..."
+echo "📦 [3/8] 安装 Python 库..."
 for pkg in requests lxml pyquery beautifulsoup4 pycryptodome flask aiohttp; do
     echo "➡️ 安装 $pkg ..."
     pip install --no-cache-dir "$pkg" --break-system-packages || true
 done
 
-echo "🐘 [4/9] 安装 PHP 及数据库支持..."
-pkg install -y php php-mysql php-sqlite
+echo "🐘 [4/8] 安装 PHP..."
+pkg install -y php
 
-echo "🗄️ [5/9] 安装数据库支持 (MariaDB + SQLite)..."
+echo "🗄️ [5/8] 安装数据库支持 (MariaDB + SQLite)..."
 pkg install -y mariadb sqlite
 
-echo "🧰 [6/9] 安装常用工具..."
+echo "🧰 [6/8] 安装常用工具..."
 pkg install -y git curl wget nano unzip zip
 
-echo "🚀 [7/9] 初始化 MariaDB 数据目录..."
+echo "🚀 [7/8] 初始化 MariaDB 数据目录..."
 mysql_install_db >/dev/null 2>&1 || true
 
 # 创建 PHP & Python 项目目录
-echo "🌐 [8/9] 创建项目目录..."
+echo "🌐 [8/8] 创建项目目录..."
 termux-setup-storage
 mkdir -p "$PHP_DIR" "$PY_DIR"
 
@@ -159,8 +160,8 @@ fi
 # =====================================================
 echo "------------------------------------------"
 echo "✅ 安装完成！"
-echo "Python Flask 端口: 8082"
 echo "PHP 端口: 8081"
+echo "Python Flask 端口: 8082"
 echo "PHP 网站目录: $PHP_DIR"
 echo "Python 项目目录: $PY_DIR"
 echo "访问 PHP: http://127.0.0.1:8081"
