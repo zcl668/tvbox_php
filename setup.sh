@@ -1,170 +1,181 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # =====================================================
-# 📦 Termux 通用环境安装脚本 v6
-# 功能：
-#   ✅ Python Flask 默认端口 8082
-#   ✅ PHP 默认端口 8081
-#   ✅ PHP 网站目录：/storage/emulated/0/lz/php
-#   ✅ Python 项目目录：/storage/emulated/0/lz/py/sy
-#   ✅ 一键修复模式 (--fix)
-#   ✅ 可禁用自启动 (--no-auto)
-#   ✅ 完全兼容 Termux
+# Termux 全能环境安装脚本（适配系统限制版）
+# 核心优化：取消pip强制升级，避免Termux包依赖冲突
+# 安装范围：Python+核心库 + PHP+SQLite扩展 + 常用开发工具
 # =====================================================
 
-set -e
+# 颜色输出（区分状态）
+GREEN="\033[32m[成功]\033[0m"
+YELLOW="\033[33m[跳过]\033[0m"
+BLUE="\033[34m[执行]\033[0m"
+RED="\033[31m[错误]\033[0m"
+INFO="\033[96m[说明]\033[0m"
 
-# 默认目录
-PHP_DIR="/storage/emulated/0/lz/php"
-PY_DIR="/storage/emulated/0/lz/py/sy"
-BASHRC_FILE="$PREFIX/etc/bash.bashrc"
+# 核心函数：检查命令是否存在
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
 
-# 参数解析
-NO_AUTO=false
-if [[ "$1" == "--fix" ]]; then
-    MODE="fix"
-elif [[ "$1" == "--no-auto" ]]; then
-    MODE="noauto"
-    NO_AUTO=true
-else
-    MODE="install"
-fi
+# 核心函数：强制校验Python库是否可用
+check_python_lib() {
+    python -c "import $1" >/dev/null 2>&1
+}
+
+# 核心函数：强制校验PHP扩展是否启用
+check_php_ext() {
+    php -m | grep -q "^$1$" >/dev/null 2>&1
+}
 
 # =====================================================
-# 🧩 修复模式
+# 步骤1：系统更新（仅首次执行）
 # =====================================================
-if [[ "$MODE" == "fix" ]]; then
-    echo "🧩 启动修复模式..."
-    echo "🔧 重新安装核心组件..."
-    pkg reinstall -y python php mariadb sqlite || true
-    python -m ensurepip --upgrade || true
-    pip install --no-cache-dir --upgrade requests lxml pyquery beautifulsoup4 pycryptodome flask aiohttp --break-system-packages || true
-
-    echo "🧹 重建 PHP 和 Python 目录..."
-    mkdir -p "$PHP_DIR" "$PY_DIR"
-
-    # PHP 默认首页
-    cat > "$PHP_DIR/index.php" <<'EOF'
-<?php
-echo "<h2>✅ Termux PHP Server 正常运行</h2>";
-echo "<p>当前时间: " . date('Y-m-d H:i:s') . "</p>";
-?>
-EOF
-
-    # Python 默认 Flask app
-    cat > "$PY_DIR/app.py" <<'EOF'
-from flask import Flask
-from datetime import datetime
-app = Flask(__name__)
-
-@app.route("/")
-def index():
-    return f"<h2>✅ Termux Python Flask Server 正常运行</h2><p>当前时间: {datetime.now()}</p>"
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8082)
-EOF
-
-    # PHP 自启动
-    if ! grep -q "php -S 0.0.0.0:8081" "$BASHRC_FILE" && [[ "$NO_AUTO" == false ]]; then
-        echo -e "\n# ===== PHP 自启动服务 =====" >> "$BASHRC_FILE"
-        echo "cd \"$PHP_DIR\" && php -S 0.0.0.0:8081 >/dev/null 2>&1 &" >> "$BASHRC_FILE"
-        echo "# ==========================" >> "$BASHRC_FILE"
+echo -e "\n${BLUE} 1/6 开始系统更新（仅首次运行，更新后永久跳过）"
+UPDATE_MARKER="$HOME/.termux_env_system_updated"
+if [ ! -f "$UPDATE_MARKER" ]; then
+    echo -e "${INFO} 正在更新Termux软件源并升级已安装包..."
+    if pkg update -y && pkg upgrade -y; then
+        touch "$UPDATE_MARKER"
+        echo -e "${GREEN} 系统更新完成，已创建标记文件"
+    else
+        echo -e "${RED} 系统更新失败！请检查网络后重试"
+        exit 1
     fi
-
-    echo "✅ 修复完成！重启 Termux 后 PHP(8081) 与 Python(8082) 将可运行"
-    exit 0
+else
+    echo -e "${YELLOW} 系统已更新过，直接跳过此步骤"
 fi
 
 # =====================================================
-# 🧱 正常安装流程
+# 步骤2：安装基础依赖库
 # =====================================================
-echo "🧰 [1/8] 更新系统..."
-pkg update -y && pkg upgrade -y
-
-echo "🐍 [2/8] 安装 Python 及依赖..."
-pkg install -y python libxml2 libxslt clang openssl-tool
-
-# pip 检查
-if ! command -v pip >/dev/null 2>&1; then
-    echo "⚙️ pip 不存在，正在修复..."
-    python -m ensurepip --upgrade
-fi
-
-echo "🔎 当前 pip 版本:"
-pip -V || echo "⚠️ pip 未检测到"
-
-# Python 库安装
-echo "📦 [3/8] 安装 Python 库..."
-for pkg in requests lxml pyquery beautifulsoup4 pycryptodome flask aiohttp; do
-    echo "➡️ 安装 $pkg ..."
-    pip install --no-cache-dir "$pkg" --break-system-packages || true
+echo -e "\n${BLUE} 2/6 安装基础依赖库（Python/PHP解析/加密必需）"
+BASE_DEPS="libxml2 libxslt openssl-tool"
+for dep in $BASE_DEPS; do
+    if pkg list-installed "$dep" >/dev/null 2>&1; then
+        echo -e "${YELLOW} $dep：已安装，跳过"
+    else
+        echo -e "${INFO} 正在安装 $dep..."
+        pkg install -y "$dep" || { echo -e "${RED} $dep 安装失败"; exit 1; }
+        echo -e "${GREEN} $dep 安装成功"
+    fi
 done
 
-echo "🐘 [4/8] 安装 PHP..."
-pkg install -y php
-
-echo "🗄️ [5/8] 安装数据库支持 (MariaDB + SQLite)..."
-pkg install -y mariadb sqlite
-
-echo "🧰 [6/8] 安装常用工具..."
-pkg install -y git curl wget nano unzip zip
-
-echo "🚀 [7/8] 初始化 MariaDB 数据目录..."
-mysql_install_db >/dev/null 2>&1 || true
-
-# 创建 PHP & Python 项目目录
-echo "🌐 [8/8] 创建项目目录..."
-termux-setup-storage
-mkdir -p "$PHP_DIR" "$PY_DIR"
-
-# PHP 首页
-cat > "$PHP_DIR/index.php" <<'EOF'
-<?php
-echo "<h2>✅ Termux PHP Server 正常运行</h2>";
-echo "<p>当前时间: " . date('Y-m-d H:i:s') . "</p>";
-?>
-EOF
-
-# Python Flask 示例
-cat > "$PY_DIR/app.py" <<'EOF'
-from flask import Flask
-from datetime import datetime
-app = Flask(__name__)
-
-@app.route("/")
-def index():
-    return f"<h2>✅ Termux Python Flask Server 正常运行</h2><p>当前时间: {datetime.now()}</p>"
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8082)
-EOF
-
 # =====================================================
-# ⚙️ 自动启动配置
+# 步骤3：Python环境安装（适配Termux pip限制）
 # =====================================================
-if [[ "$NO_AUTO" == false ]]; then
-    echo "⚙️ 配置 PHP 自启动 (端口: 8081)..."
-    if ! grep -q "php -S 0.0.0.0:8081" "$BASHRC_FILE"; then
-        echo -e "\n# ===== PHP 自启动服务 =====" >> "$BASHRC_FILE"
-        echo "cd \"$PHP_DIR\" && php -S 0.0.0.0:8081 >/dev/null 2>&1 &" >> "$BASHRC_FILE"
-        echo "# ==========================" >> "$BASHRC_FILE"
-    fi
-    echo "⚙️ Python Flask 示例 app 已创建 (端口 8082)，请手动启动："
-    echo "   cd \"$PY_DIR\" && python app.py"
+echo -e "\n${BLUE} 3/6 安装Python环境（含核心开发库）"
+# 校验Python本体
+if command_exists python; then
+    PY_VERSION=$(python -V 2>&1)
+    echo -e "${YELLOW} Python本体：已安装（版本：$PY_VERSION），跳过安装"
 else
-    echo "⏸️ 已跳过 PHP 自启动 (--no-auto 模式)"
+    echo -e "${INFO} 正在安装Python本体..."
+    pkg install -y python || { echo -e "${RED} Python安装失败"; exit 1; }
+    echo -e "${GREEN} Python本体安装成功"
+fi
+
+# 校验系统pip（取消强制升级，使用Termux自带版本）
+if command_exists pip; then
+    echo -e "${YELLOW} pip：系统自带版本已存在，无需升级"
+else
+    echo -e "${INFO} 正在安装系统pip..."
+    pkg install -y python-pip || { echo -e "${RED} pip安装失败"; exit 1; }
+    echo -e "${GREEN} 系统pip安装成功"
+fi
+
+# 安装并强制校验Python核心库
+PYTHON_LIBS="requests lxml pyquery beautifulsoup4 pycryptodome flask aiohttp sqlite3"
+echo -e "${INFO} 正在检查并安装Python核心库..."
+for lib in $PYTHON_LIBS; do
+    if check_python_lib "$lib"; then
+        echo -e "${YELLOW} Python库 $lib：已安装且可用，跳过"
+    else
+        echo -e "${INFO} 正在安装 $lib..."
+        pip install --no-cache-dir "$lib" || { echo -e "${RED} $lib 安装失败"; exit 1; }
+        echo -e "${GREEN} Python库 $lib 安装成功"
+    fi
+done
+
+# =====================================================
+# 步骤4：PHP环境安装
+# =====================================================
+echo -e "\n${BLUE} 4/6 安装PHP环境（含SQLite扩展）"
+# 校验PHP本体
+if command_exists php; then
+    PHP_VERSION=$(php -v 2>&1 | head -n1)
+    echo -e "${YELLOW} PHP本体：已安装（版本：$PHP_VERSION），跳过安装"
+else
+    echo -e "${INFO} 正在安装PHP本体..."
+    pkg install -y php || { echo -e "${RED} PHP安装失败"; exit 1; }
+    echo -e "${GREEN} PHP本体安装成功"
+fi
+
+# 校验PHP sqlite3扩展
+if check_php_ext "sqlite3"; then
+    echo -e "${YELLOW} PHP扩展 sqlite3：已安装且启用，跳过"
+else
+    echo -e "${INFO} 正在安装PHP sqlite3扩展..."
+    pkg install -y php-sqlite || { echo -e "${RED} sqlite3扩展安装失败"; exit 1; }
+    echo -e "${GREEN} PHP sqlite3扩展安装成功"
 fi
 
 # =====================================================
-# ✅ 完成信息
+# 步骤5：常用开发工具安装
 # =====================================================
-echo "------------------------------------------"
-echo "✅ 安装完成！"
-echo "PHP 端口: 8081"
-echo "Python Flask 端口: 8082"
-echo "PHP 网站目录: $PHP_DIR"
-echo "Python 项目目录: $PY_DIR"
-echo "访问 PHP: http://127.0.0.1:8081"
-echo "访问 Python: http://127.0.0.1:8082"
-echo "🩹 修复命令: bash install_env.sh --fix"
-echo "------------------------------------------"
+echo -e "\n${BLUE} 5/6 安装常用开发工具"
+TOOLS="git curl wget nano unzip zip clang"
+for tool in $TOOLS; do
+    if command_exists "$tool"; then
+        echo -e "${YELLOW} 工具 $tool：已安装，跳过"
+    else
+        echo -e "${INFO} 正在安装 $tool..."
+        pkg install -y "$tool" && echo -e "${GREEN} 工具 $tool 安装成功" || echo -e "${YELLOW} 工具 $tool 安装失败（不影响核心环境）"
+    fi
+done
+
+# =====================================================
+# 步骤6：最终完整性校验
+# =====================================================
+echo -e "\n${BLUE} 6/6 最终完整性校验"
+# 校验Python
+PY_FINAL_VERSION=$(python -V 2>&1)
+if echo "$PY_FINAL_VERSION" | grep -q "Python" && check_python_lib "flask" && check_python_lib "sqlite3"; then
+    echo -e "${GREEN} Python环境：可用（版本：$PY_FINAL_VERSION）"
+else
+    echo -e "${RED} Python环境校验失败"
+    exit 1
+fi
+
+# 校验PHP
+PHP_FINAL_VERSION=$(php -v 2>&1 | head -n1)
+if echo "$PHP_FINAL_VERSION" | grep -q "PHP" && check_php_ext "sqlite3"; then
+    echo -e "${GREEN} PHP环境：可用（版本：$PHP_FINAL_VERSION，sqlite3扩展已启用）"
+else
+    echo -e "${RED} PHP环境校验失败"
+    exit 1
+fi
+
+# 校验SQLite
+SQLITE_FINAL_VERSION=$(sqlite3 --version 2>&1 | head -n1)
+TEST_DB="termux_env_test.db"
+if echo "$SQLITE_FINAL_VERSION" | grep -q "3." && sqlite3 "$TEST_DB" "CREATE TABLE test (id INT); INSERT INTO test VALUES (1); DROP TABLE test;" >/dev/null 2>&1; then
+    rm -f "$TEST_DB"
+    echo -e "${GREEN} SQLite环境：可用（版本：$SQLITE_FINAL_VERSION）"
+else
+    rm -f "$TEST_DB"
+    echo -e "${RED} SQLite环境校验失败"
+    exit 1
+fi
+
+# =====================================================
+# 安装完成
+# =====================================================
+echo -e "\n====================================================="
+echo -e "${GREEN}🎉 环境安装完成！所有核心组件均已校验可用"
+echo -e "====================================================="
+echo -e "${INFO} 📌 核心功能命令："
+echo -e "   1. Flask服务：flask run --host=0.0.0.0"
+echo -e "   2. PHP服务器：php -S 0.0.0.0:8000"
+echo -e "   3. SQLite操作：sqlite3 数据库名.db"
+echo -e "${INFO} ⚠️  说明：仅安装环境，未启动后台服务"
+echo -e "====================================================="
