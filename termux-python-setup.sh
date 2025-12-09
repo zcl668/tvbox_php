@@ -62,9 +62,28 @@ install_build_deps() {
     log_info "编译依赖安装完成"
 }
 
+# 设置Termux包管理器镜像源（清华源）
+setup_termux_mirror() {
+    log_info "设置Termux包管理器镜像源（清华源）..."
+    
+    # 备份原始源
+    if [ -f "$PREFIX/etc/apt/sources.list" ]; then
+        cp "$PREFIX/etc/apt/sources.list" "$PREFIX/etc/apt/sources.list.backup"
+    fi
+    
+    # 写入清华镜像源
+    echo "# The termux repository mirror from TUNA:
+deb https://mirrors.tuna.tsinghua.edu.cn/termux/apt/termux-main stable main" > "$PREFIX/etc/apt/sources.list"
+    
+    log_info "Termux镜像源已设置为清华源"
+}
+
 # 基础安装
 install_basic() {
     log_step "开始基础安装..."
+    
+    # 设置Termux镜像源
+    setup_termux_mirror
     
     log_info "更新系统包..."
     pkg update -y && pkg upgrade -y
@@ -77,12 +96,33 @@ install_basic() {
     # 安装编译依赖
     install_build_deps
     
-    log_info "设置 pip 镜像源..."
-    pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple 2>/dev/null || {
-        # 如果 pip config 失败，使用环境变量
-        export PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-    }
-    log_info "pip 镜像源已设置"
+    log_info "设置pip镜像源（阿里云镜像）..."
+    # 尝试多种设置方式
+    mkdir -p ~/.pip
+    
+    # 方法1: 使用pip config命令
+    pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ 2>/dev/null
+    
+    # 方法2: 直接写入pip配置文件
+    cat > ~/.pip/pip.conf << EOF
+[global]
+index-url = https://mirrors.aliyun.com/pypi/simple/
+trusted-host = mirrors.aliyun.com
+timeout = 120
+
+[install]
+trusted-host = mirrors.aliyun.com
+EOF
+    
+    # 方法3: 设置环境变量作为备用
+    export PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+    
+    log_info "pip镜像源已设置为阿里云镜像"
+    
+    # 可选的其他国内镜像源（注释备用）
+    # 华为云镜像: https://mirrors.huaweicloud.com/repository/pypi/simple/
+    # 腾讯云镜像: https://mirrors.cloud.tencent.com/pypi/simple/
+    # 豆瓣镜像: https://pypi.douban.com/simple/
     
     log_info "安装基础 Python 库..."
     basic_packages=(
@@ -99,11 +139,17 @@ install_basic() {
     
     for package in "${basic_packages[@]}"; do
         log_info "安装 $package..."
-        pip install "$package" 2>/dev/null
+        pip install "$package" --trusted-host mirrors.aliyun.com 2>/dev/null
         if [ $? -eq 0 ]; then
             log_info "✓ $package 安装成功"
         else
-            log_warn "✗ $package 安装失败"
+            log_warn "尝试使用备用镜像源..."
+            pip install "$package" -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn 2>/dev/null
+            if [ $? -eq 0 ]; then
+                log_info "✓ $package 安装成功（使用清华源）"
+            else
+                log_warn "✗ $package 安装失败"
+            fi
         fi
     done
     
@@ -129,11 +175,23 @@ install_full() {
     
     for package in "${science_packages[@]}"; do
         log_info "安装 $package..."
-        pip install "$package" 2>/dev/null
+        pip install "$package" --trusted-host mirrors.aliyun.com 2>/dev/null
         if [ $? -eq 0 ]; then
             log_info "✓ $package 安装成功"
         else
-            log_warn "✗ $package 安装失败"
+            log_warn "尝试使用清华源..."
+            pip install "$package" -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn 2>/dev/null
+            if [ $? -eq 0 ]; then
+                log_info "✓ $package 安装成功（使用清华源）"
+            else
+                log_warn "尝试使用豆瓣源..."
+                pip install "$package" -i https://pypi.douban.com/simple/ --trusted-host pypi.douban.com 2>/dev/null
+                if [ $? -eq 0 ]; then
+                    log_info "✓ $package 安装成功（使用豆瓣源）"
+                else
+                    log_warn "✗ $package 安装失败"
+                fi
+            fi
         fi
     done
     
@@ -146,11 +204,17 @@ install_full() {
     
     for package in "${network_packages[@]}"; do
         log_info "安装 $package..."
-        pip install "$package" 2>/dev/null
+        pip install "$package" --trusted-host mirrors.aliyun.com 2>/dev/null
         if [ $? -eq 0 ]; then
             log_info "✓ $package 安装成功"
         else
-            log_warn "✗ $package 安装失败"
+            log_warn "尝试使用备用源..."
+            pip install "$package" -i https://mirrors.huaweicloud.com/repository/pypi/simple/ --trusted-host mirrors.huaweicloud.com 2>/dev/null
+            if [ $? -eq 0 ]; then
+                log_info "✓ $package 安装成功（使用华为云源）"
+            else
+                log_warn "✗ $package 安装失败"
+            fi
         fi
     done
     
@@ -162,6 +226,9 @@ install_full() {
 install_minimal() {
     log_step "开始最小安装..."
     
+    # 设置Termux镜像源
+    setup_termux_mirror
+    
     log_info "更新系统包..."
     pkg update -y && pkg upgrade -y
     check_success "系统包更新"
@@ -170,20 +237,38 @@ install_minimal() {
     pkg install -y python clang
     check_success "Python 安装"
     
-    log_info "设置 pip 镜像源..."
-    pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple 2>/dev/null || {
-        export PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-    }
+    log_info "设置pip镜像源（清华源）..."
+    mkdir -p ~/.pip
+    
+    # 写入pip配置文件
+    cat > ~/.pip/pip.conf << EOF
+[global]
+index-url = https://pypi.tuna.tsinghua.edu.cn/simple/
+trusted-host = pypi.tuna.tsinghua.edu.cn
+timeout = 120
+
+[install]
+trusted-host = pypi.tuna.tsinghua.edu.cn
+EOF
+    
+    export PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple/
+    log_info "pip镜像源已设置为清华源"
     
     log_info "安装必要库..."
     minimal_packages=("requests" "psutil" "pillow")
     for package in "${minimal_packages[@]}"; do
         log_info "安装 $package..."
-        pip install "$package" 2>/dev/null
+        pip install "$package" --trusted-host pypi.tuna.tsinghua.edu.cn 2>/dev/null
         if [ $? -eq 0 ]; then
             log_info "✓ $package 安装成功"
         else
-            log_warn "✗ $package 安装失败"
+            log_warn "尝试使用阿里云源..."
+            pip install "$package" -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com 2>/dev/null
+            if [ $? -eq 0 ]; then
+                log_info "✓ $package 安装成功（使用阿里云源）"
+            else
+                log_warn "✗ $package 安装失败"
+            fi
         fi
     done
     
@@ -218,13 +303,18 @@ show_summary() {
     echo "  python your_script.py    # 运行Python脚本"
     echo "  pip list                 # 查看已安装的包"
     echo "  pip install 包名         # 安装新包"
+    echo ""
+    log_info "镜像源信息:"
+    echo "  Termux包管理: 清华源"
+    echo "  Python包(pip): 阿里云/清华/华为云等"
+    echo "  如需更改: 编辑 ~/.pip/pip.conf"
     log_info "=========================================="
 }
 
 # 主函数
 main() {
     echo "Termux Python 环境一键安装脚本"
-    echo "完全适配 Termux 限制"
+    echo "完全适配 Termux 限制，使用国内镜像源加速"
     echo "=========================================="
     
     while true; do
