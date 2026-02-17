@@ -2,7 +2,7 @@
 set -e
 pkg install -y php
 termux-setup-storage
-PHP_ROOT="/storage/emulated/0/VodPlus/wwwroot/"
+PHP_ROOT="/storage/emulated/0/VodPlus/wwwroot/直播[vod]/"
 mkdir -p "$PHP_ROOT"
 cat > "$PHP_ROOT/index.php" << 'EOF'
 <?php
