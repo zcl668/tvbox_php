@@ -345,4 +345,118 @@ Node.js ${NODE_FULL} for Android TV Box (${TARGET_ARCH})
 
 使用说明:
 1. 解压到电视盒子目录 (如 /sdcard/node)
-2. 运行测试: cd 
+2. 运行测试: cd /sdcard/node && ./bin/node-tv test.js
+3. 运行脚本: ./bin/node-tv 你的脚本.js
+4. 使用 npm: ./bin/npm-tv install 包名
+
+环境变量:
+- LD_LIBRARY_PATH: lib:/system/lib:/vendor/lib
+- NODE_PATH: lib/node_modules
+
+打包日期: $(date)
+EOF
+    
+    echo -e "${GREEN}  ✓ 脚本创建完成${NC}"
+    
+    # ----- 6. 测试打包的 Node.js -----
+    echo -e "${BLUE}[6/7] 测试打包的 Node.js...${NC}"
+    cp -r "$WORKDIR/"* "$TEST_DIR/"
+    
+    # 设置测试环境
+    export TEST_LD_LIBRARY_PATH="$TEST_DIR/lib:/system/lib:/vendor/lib"
+    
+    echo -e "${YELLOW}  运行测试脚本...${NC}"
+    
+    # 尝试运行 Node.js
+    if env -i LD_LIBRARY_PATH="$TEST_LD_LIBRARY_PATH" "$TEST_DIR/bin/node" test.js > "$TEST_DIR/test-output.log" 2>&1; then
+        echo -e "${GREEN}  ✓ Node.js 测试通过${NC}"
+        echo -e "${GREEN}  ✓ $(env -i LD_LIBRARY_PATH="$TEST_LD_LIBRARY_PATH" "$TEST_DIR/bin/node" --version 2>/dev/null)${NC}"
+    else
+        echo -e "${RED}  ✗ Node.js 测试失败${NC}"
+        echo -e "${YELLOW}  错误信息:${NC}"
+        tail -10 "$TEST_DIR/test-output.log"
+        
+        # 尝试直接运行查看错误
+        echo -e "${YELLOW}  尝试直接运行:${NC}"
+        env -i LD_LIBRARY_PATH="$TEST_LD_LIBRARY_PATH" "$TEST_DIR/bin/node" --version 2>&1 || true
+        
+        echo ""
+        echo -e "${YELLOW}  是否继续打包？(y/n)${NC}"
+        read -p "> " CONTINUE
+        if [[ "$CONTINUE" != "y" && "$CONTINUE" != "Y" ]]; then
+            echo -e "${RED}打包取消${NC}"
+            rm -rf "$WORKDIR" "$TEST_DIR"
+            exit 1
+        fi
+    fi
+    
+    # ----- 7. 打包为 ZIP -----
+    echo -e "${BLUE}[7/7] 打包为 ZIP...${NC}"
+    cd "$WORKDIR"
+    zip -ry "$OUTPUT_PATH" ./* > /dev/null
+    cd "$HOME"
+    
+    ZIP_SIZE=$(du -h "$OUTPUT_PATH" | cut -f1)
+    ZIP_FILES=$(unzip -l "$OUTPUT_PATH" 2>/dev/null | wc -l)
+    
+    echo -e "${CYAN}================================================${NC}"
+    echo -e "${GREEN}✅ 打包完成！${NC}"
+    echo -e "  文件: ${YELLOW}${OUTPUT_PATH}${NC}"
+    echo -e "  大小: ${YELLOW}${ZIP_SIZE}${NC}"
+    echo -e "  文件数: ${YELLOW}${ZIP_FILES}${NC}"
+    echo -e "  目标架构: ${YELLOW}${TARGET_ARCH}${NC}"
+    echo -e "  打包设备: ${YELLOW}${CURRENT_ARCH}${NC}"
+    echo -e "${CYAN}================================================${NC}"
+    echo ""
+    echo -e "${PURPLE}lab.json 配置:${NC}"
+    echo '  {'
+    echo "    \"name\": \"nodejs\","
+    echo "    \"group\": \"runtime\","
+    echo "    \"version\": \"${NODE_FULL}\","
+    echo "    \"binary_path\": \"bin/node-tv\","
+    echo "    \"var_path\": {"
+    echo "      \"PATH\": \"bin\","
+    echo "      \"LD_LIBRARY_PATH\": \"lib:/system/lib:/vendor/lib\","
+    echo "      \"NODE_PATH\": \"lib/node_modules\""
+    echo "    },"
+    echo "    \"downloads\": ["
+    echo "      {"
+    echo "        \"arch\": \"${TARGET_ARCH}\","
+    echo "        \"url\": \"你的上传地址\","
+    echo "        \"size\": \"${ZIP_SIZE}\""
+    echo "      }"
+    echo "    ]"
+    echo '  }'
+    echo -e "${CYAN}================================================${NC}"
+    
+    # 清理临时文件
+    echo ""
+    read -p "是否清理临时文件？(y/n): " CLEANUP
+    if [[ "$CLEANUP" == "y" || "$CLEANUP" == "Y" ]]; then
+        rm -rf "$WORKDIR" "$TEST_DIR"
+        echo -e "${GREEN}✓ 已清理临时文件${NC}"
+    else
+        echo -e "${YELLOW}临时文件保留在:${NC}"
+        echo "  - $WORKDIR"
+        echo "  - $TEST_DIR"
+    fi
+}
+
+# ---------- 主函数 ----------
+main() {
+    init_vars
+    check_storage
+    check_environment
+    
+    echo ""
+    echo -e "${YELLOW}是否开始打包？(y/n)${NC}"
+    read -p "> " START
+    if [[ "$START" == "y" || "$START" == "Y" ]]; then
+        start_packaging
+    else
+        echo -e "${RED}打包取消${NC}"
+        exit 0
+    fi
+}
+
+main "$@"
