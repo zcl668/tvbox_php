@@ -1,8 +1,8 @@
 #!/bin/bash
 # ============================================================
-# python_tvbox.sh
-# 支持在 arm64 设备上打包 armeabi-v7a 版本的 Python
-# 打包为 ZIP 压缩包
+# php_tvbox.sh
+# 支持在 arm64 设备上打包 armeabi-v7a 版本的 PHP
+# 按回车键确认打包，无需键盘输入 y/n
 # ============================================================
 
 set -e
@@ -51,32 +51,32 @@ init_vars() {
     echo -e "${YELLOW}目标打包架构: ${TARGET_ARCH} (电视盒子优化版)${NC}"
     echo -e "${CYAN}================================================${NC}"
     
-    # 获取 Python 版本
-    if ! command -v python3 >/dev/null 2>&1; then
-        echo -e "${RED}错误: 未找到 python3 命令${NC}"
-        echo -e "${YELLOW}请安装 Python: pkg install python${NC}"
+    # 获取 PHP 版本
+    if ! command -v php >/dev/null 2>&1; then
+        echo -e "${RED}错误: 未找到 php 命令${NC}"
+        echo -e "${YELLOW}请安装 PHP: pkg install php${NC}"
         exit 1
     fi
     
-    PYTHON_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null)
-    PYTHON_FULL=$(python3 --version 2>/dev/null | awk '{print $2}')
+    PHP_VER=$(php -r "echo PHP_MAJOR_VERSION.'.'.PHP_MINOR_VERSION;" 2>/dev/null)
+    PHP_FULL=$(php --version 2>/dev/null | head -1 | awk '{print $2}')
     
-    if [ -z "$PYTHON_FULL" ]; then
-        echo -e "${RED}错误: 无法检测 Python 版本${NC}"
+    if [ -z "$PHP_FULL" ]; then
+        echo -e "${RED}错误: 无法检测 PHP 版本${NC}"
         exit 1
     fi
     
     # 输出路径
     OUTPUT_DIR="/storage/emulated/0/编程学习"
-    OUTPUT_NAME="python-${PYTHON_FULL}-tvbox-${TARGET_ARCH}.zip"
+    OUTPUT_NAME="php-${PHP_FULL}-tvbox-${TARGET_ARCH}.zip"
     OUTPUT_PATH="${OUTPUT_DIR}/${OUTPUT_NAME}"
     
     # Termux 路径
     TERMUX_PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
     
     # 工作目录
-    WORKDIR="$HOME/python_tvbox_repack"
-    TEST_DIR="$HOME/python_tvbox_test"
+    WORKDIR="$HOME/php_tvbox_repack"
+    TEST_DIR="$HOME/php_tvbox_test"
 }
 
 # ---------- 检查存储权限 ----------
@@ -93,18 +93,12 @@ check_storage() {
 # ---------- 检测环境 ----------
 check_environment() {
     echo -e "${CYAN}================================================${NC}"
-    echo -e "${GREEN}检测 Python 打包环境${NC}"
+    echo -e "${GREEN}检测 PHP 打包环境${NC}"
     echo -e "${CYAN}================================================${NC}"
     
-    echo -e "${GREEN}✓ Python 版本: ${PYTHON_FULL}${NC}"
+    echo -e "${GREEN}✓ PHP 版本: ${PHP_FULL}${NC}"
     echo -e "${GREEN}✓ 当前架构: ${CURRENT_ARCH}${NC}"
     echo -e "${GREEN}✓ 目标架构: ${TARGET_ARCH}${NC}"
-    
-    # 检查 pip
-    if command -v pip3 >/dev/null 2>&1; then
-        PIP_VER=$(pip3 --version 2>/dev/null | awk '{print $2}')
-        echo -e "${GREEN}✓ pip 版本: ${PIP_VER}${NC}"
-    fi
     
     # 检查必要的工具
     if ! command -v readelf >/dev/null 2>&1; then
@@ -154,99 +148,72 @@ check_file_arch() {
 start_packaging() {
     clear
     echo -e "${CYAN}================================================${NC}"
-    echo -e "${GREEN}开始打包 Python ${PYTHON_FULL} for ${TARGET_ARCH}${NC}"
+    echo -e "${GREEN}开始打包 PHP ${PHP_FULL} for ${TARGET_ARCH}${NC}"
     echo -e "${CYAN}================================================${NC}"
     
     # 清理并创建目录
     rm -rf "$WORKDIR" "$TEST_DIR"
     mkdir -p "$WORKDIR/bin"
     mkdir -p "$WORKDIR/lib"
-    mkdir -p "$WORKDIR/lib/python${PYTHON_VER}"
+    mkdir -p "$WORKDIR/etc"
+    mkdir -p "$WORKDIR/lib/php"
     mkdir -p "$TEST_DIR"
     
     echo -e "${GREEN}  ✓ 目录创建完成${NC}"
     
-    # ----- 1. 复制 Python 二进制 -----
-    echo -e "${BLUE}[1/8] 复制 Python 二进制...${NC}"
-    PYTHON_BIN=$(command -v python3)
-    cp "$PYTHON_BIN" "$WORKDIR/bin/python3"
-    chmod 755 "$WORKDIR/bin/python3"
+    # ----- 1. 复制 PHP 二进制 -----
+    echo -e "${BLUE}[1/7] 复制 PHP 二进制...${NC}"
+    PHP_BIN=$(command -v php)
+    cp "$PHP_BIN" "$WORKDIR/bin/php"
+    chmod 755 "$WORKDIR/bin/php"
+    echo -e "${GREEN}  ✓ 已复制: $PHP_BIN${NC}"
     
     # 检查二进制架构
     if [ "$CURRENT_ARCH" != "$TARGET_ARCH" ]; then
-        FILE_ARCH=$(check_file_arch "$PYTHON_BIN")
-        echo -e "${YELLOW}  ⚠ Python 二进制架构: ${FILE_ARCH:-未知}${NC}"
+        FILE_ARCH=$(check_file_arch "$PHP_BIN")
+        echo -e "${YELLOW}  ⚠ PHP 二进制架构: ${FILE_ARCH:-未知}${NC}"
     fi
     
+    # 创建链接
     cd "$WORKDIR/bin"
-    ln -sf python3 python
-    ln -sf python3 python3.${PYTHON_VER#*.} 2>/dev/null || true
+    ln -sf php php-cgi 2>/dev/null || true
+    ln -sf php phar 2>/dev/null || true
     cd "$HOME"
-    echo -e "${GREEN}  ✓ 已复制: $PYTHON_BIN${NC}"
     
-    # 复制 pip
-    if command -v pip3 >/dev/null 2>&1; then
-        PIP_BIN=$(command -v pip3)
-        cp "$PIP_BIN" "$WORKDIR/bin/pip3" 2>/dev/null || true
-        cd "$WORKDIR/bin" && ln -sf pip3 pip 2>/dev/null || true && cd "$HOME"
-        echo -e "${GREEN}  ✓ 已复制: pip${NC}"
-    fi
-    
-    # ----- 2. 复制标准库 -----
-    echo -e "${BLUE}[2/8] 复制 Python 标准库...${NC}"
-    STDLIB_DIR="${TERMUX_PREFIX}/lib/python${PYTHON_VER}"
-    if [ -d "$STDLIB_DIR" ]; then
-        cp -r "$STDLIB_DIR" "$WORKDIR/lib/"
-        echo -e "${GREEN}  ✓ 标准库复制完成${NC}"
-    else
-        echo -e "${RED}  ✗ 找不到标准库目录: $STDLIB_DIR${NC}"
-        exit 1
-    fi
-    
-    # ----- 3. 复制动态模块 -----
-    echo -e "${BLUE}[3/8] 复制动态模块...${NC}"
-    DYNLOAD_DIR="${TERMUX_PREFIX}/lib/python${PYTHON_VER}/lib-dynload"
-    if [ -d "$DYNLOAD_DIR" ]; then
-        cp -r "$DYNLOAD_DIR" "$WORKDIR/lib/python${PYTHON_VER}/"
-        MOD_COUNT=$(find "$WORKDIR/lib/python${PYTHON_VER}/lib-dynload" -name "*.so" 2>/dev/null | wc -l)
-        echo -e "${GREEN}  ✓ 已复制 $MOD_COUNT 个动态模块${NC}"
+    # ----- 2. 复制 PHP 扩展 -----
+    echo -e "${BLUE}[2/7] 复制 PHP 扩展...${NC}"
+    EXT_DIR="${TERMUX_PREFIX}/lib/php"
+    if [ -d "$EXT_DIR" ]; then
+        cp -r "$EXT_DIR/"* "$WORKDIR/lib/php/" 2>/dev/null || true
+        EXT_COUNT=$(find "$WORKDIR/lib/php" -name "*.so" 2>/dev/null | wc -l)
+        echo -e "${GREEN}  ✓ 已复制 $EXT_COUNT 个扩展${NC}"
         
-        # 显示前几个模块的架构信息
-        if [ "$CURRENT_ARCH" != "$TARGET_ARCH" ] && [ $MOD_COUNT -gt 0 ]; then
-            echo -e "${YELLOW}  ⚠ 模块架构示例:${NC}"
-            for SO in $(find "$WORKDIR/lib/python${PYTHON_VER}/lib-dynload" -name "*.so" 2>/dev/null | head -3); do
+        # 显示前几个扩展的架构信息
+        if [ "$CURRENT_ARCH" != "$TARGET_ARCH" ] && [ $EXT_COUNT -gt 0 ]; then
+            echo -e "${YELLOW}  ⚠ 扩展架构示例:${NC}"
+            for SO in $(find "$WORKDIR/lib/php" -name "*.so" 2>/dev/null | head -3); do
                 SO_ARCH=$(check_file_arch "$SO")
                 echo -e "    $(basename $SO): ${SO_ARCH:-未知}"
             done
         fi
     fi
     
-    # ----- 4. 精简标准库 -----
-    echo -e "${BLUE}[4/8] 精简标准库...${NC}"
+    # ----- 3. 复制配置文件 -----
+    echo -e "${BLUE}[3/7] 复制配置文件...${NC}"
+    if [ -d "${TERMUX_PREFIX}/etc/php" ]; then
+        cp -r "${TERMUX_PREFIX}/etc/php" "$WORKDIR/etc/" 2>/dev/null || true
+        echo -e "${GREEN}  ✓ 配置目录复制完成${NC}"
+    fi
     
-    # 删除不必要的模块
-    rm -rf "$WORKDIR/lib/python${PYTHON_VER}/test"
-    rm -rf "$WORKDIR/lib/python${PYTHON_VER}/idlelib"
-    rm -rf "$WORKDIR/lib/python${PYTHON_VER}/tkinter"
-    rm -rf "$WORKDIR/lib/python${PYTHON_VER}/turtledemo"
-    rm -rf "$WORKDIR/lib/python${PYTHON_VER}/distutils/command" 2>/dev/null || true
+    # ----- 4. 收集依赖库 -----
+    echo -e "${BLUE}[4/7] 收集依赖库...${NC}"
     
-    # 删除缓存文件
-    find "$WORKDIR/lib/python${PYTHON_VER}" -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-    find "$WORKDIR/lib/python${PYTHON_VER}" -name "*.pyc" -delete 2>/dev/null || true
-    find "$WORKDIR/lib/python${PYTHON_VER}" -name "*.pyo" -delete 2>/dev/null || true
+    # 收集 PHP 二进制依赖
+    ALL_DEPS=$(collect_all_deps "$WORKDIR/bin/php" | sort -u)
     
-    echo -e "${GREEN}  ✓ 精简完成${NC}"
-    
-    # ----- 5. 收集依赖库 -----
-    echo -e "${BLUE}[5/8] 收集依赖库...${NC}"
-    
-    # 收集 Python 二进制依赖
-    ALL_DEPS=$(collect_all_deps "$WORKDIR/bin/python3" | sort -u)
-    
-    # 收集动态模块依赖
-    if [ -d "$WORKDIR/lib/python${PYTHON_VER}/lib-dynload" ]; then
-        for SO in $(find "$WORKDIR/lib/python${PYTHON_VER}/lib-dynload" -name "*.so" 2>/dev/null); do
+    # 收集扩展依赖
+    if [ -d "$WORKDIR/lib/php" ]; then
+        for SO in $(find "$WORKDIR/lib/php" -name "*.so" 2>/dev/null); do
             ALL_DEPS="$ALL_DEPS"$'\n'"$(collect_all_deps "$SO")"
         done
     fi
@@ -271,8 +238,8 @@ start_packaging() {
         fi
     done
     
-    # ----- 6. 复制基础系统库 -----
-    echo -e "${BLUE}[6/8] 复制基础系统库...${NC}"
+    # ----- 5. 复制基础系统库 -----
+    echo -e "${BLUE}[5/7] 复制基础系统库...${NC}"
     
     # 电视盒子需要的基础库
     BASE_LIBS="
@@ -282,21 +249,24 @@ start_packaging() {
         libpthread.so
         libresolv.so
         librt.so
-        libutil.so
         libstdc++.so
         libgcc_s.so
         libc++_shared.so
         libssl.so
         libcrypto.so
         libz.so
+        libxml2.so
+        libicuuc.so
+        libicui18n.so
+        libicudata.so
+        libsqlite3.so
+        libcurl.so
+        libonig.so
         libbz2.so
         liblzma.so
         libexpat.so
-        libsqlite3.so
-        libffi.so
-        libncursesw.so
         libreadline.so
-        libpanelw.so
+        libncursesw.so
     "
     
     for LIB in $BASE_LIBS; do
@@ -315,70 +285,107 @@ start_packaging() {
         fi
     done
     
-    # 复制 libpython 库
-    LIBPYTHON=$(find "${TERMUX_PREFIX}/lib" -name "libpython${PYTHON_VER}.so*" 2>/dev/null | head -1)
-    if [ -n "$LIBPYTHON" ]; then
-        cp "$LIBPYTHON" "$WORKDIR/lib/"
-        echo -e "${GREEN}  ✓ 复制: $(basename $LIBPYTHON)${NC}"
+    # ----- 6. 生成 php.ini -----
+    echo -e "${BLUE}[6/7] 生成 php.ini...${NC}"
+    
+    cat > "$WORKDIR/etc/php.ini" << 'EOF'
+[PHP]
+engine = On
+short_open_tag = On
+precision = 14
+output_buffering = 4096
+zlib.output_compression = Off
+implicit_flush = Off
+unserialize_callback_func =
+serialize_precision = -1
+disable_functions = exec,passthru,shell_exec,system,proc_open,popen
+disable_classes =
+zend.enable_gc = On
+expose_php = Off
+max_execution_time = 300
+max_input_time = 60
+memory_limit = 128M
+error_reporting = E_ALL & ~E_DEPRECATED & ~E_STRICT
+display_errors = Off
+display_startup_errors = Off
+log_errors = On
+log_errors_max_len = 1024
+ignore_repeated_errors = Off
+ignore_repeated_source = Off
+report_memleaks = On
+html_errors = Off
+variables_order = "GPCS"
+request_order = "GP"
+register_argc_argv = Off
+auto_globals_jit = On
+post_max_size = 50M
+auto_prepend_file =
+auto_append_file =
+default_mimetype = "text/html"
+default_charset = "UTF-8"
+doc_root =
+user_dir =
+enable_dl = Off
+file_uploads = On
+upload_max_filesize = 50M
+max_file_uploads = 20
+allow_url_fopen = On
+allow_url_include = Off
+default_socket_timeout = 60
+extension_dir = "lib/php"
+date.timezone = Asia/Shanghai
+
+[CLI Server]
+cli_server.color = On
+
+[mysqlnd]
+mysqlnd.collect_statistics = Off
+mysqlnd.collect_memory_statistics = Off
+
+[curl]
+curl.cainfo =
+
+[openssl]
+openssl.cafile =
+EOF
+
+    # 添加扩展加载
+    if [ -d "$WORKDIR/lib/php" ]; then
+        echo "" >> "$WORKDIR/etc/php.ini"
+        echo "; 自动加载扩展" >> "$WORKDIR/etc/php.ini"
+        for SO_FILE in $(find "$WORKDIR/lib/php" -name "*.so" 2>/dev/null | sort); do
+            EXT_NAME=$(basename "$SO_FILE" .so)
+            echo "extension=${EXT_NAME}" >> "$WORKDIR/etc/php.ini"
+        done
     fi
+    
+    echo -e "${GREEN}  ✓ php.ini 生成完成${NC}"
     
     # ----- 7. 创建启动脚本 -----
-    echo -e "${BLUE}[7/8] 创建启动脚本...${NC}"
+    echo -e "${BLUE}[7/7] 创建启动脚本...${NC}"
     
-    # Python 主启动脚本
-    cat > "$WORKDIR/bin/python-tv" << 'EOF'
+    # 创建 PHP 启动脚本
+    cat > "$WORKDIR/bin/php-tv" << 'EOF'
 #!/system/bin/sh
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BASE_DIR="$(dirname "$SCRIPT_DIR")"
 export LD_LIBRARY_PATH="$BASE_DIR/lib:/system/lib:/vendor/lib:$LD_LIBRARY_PATH"
-export PYTHONHOME="$BASE_DIR"
-export PYTHONPATH="$BASE_DIR/lib/python${PYTHON_VER}/site-packages"
-exec "$SCRIPT_DIR/python3" "$@"
+export PHPRC="$BASE_DIR/etc/php.ini"
+export PHP_INI_SCAN_DIR="$BASE_DIR/etc/php"
+exec "$SCRIPT_DIR/php" "$@"
 EOF
-    chmod 755 "$WORKDIR/bin/python-tv"
-    
-    # pip 启动脚本
-    if [ -f "$WORKDIR/bin/pip3" ]; then
-        cat > "$WORKDIR/bin/pip-tv" << 'EOF'
-#!/system/bin/sh
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASE_DIR="$(dirname "$SCRIPT_DIR")"
-export LD_LIBRARY_PATH="$BASE_DIR/lib:/system/lib:/vendor/lib:$LD_LIBRARY_PATH"
-export PYTHONHOME="$BASE_DIR"
-export PYTHONPATH="$BASE_DIR/lib/python${PYTHON_VER}/site-packages"
-exec "$SCRIPT_DIR/python3" -m pip "$@"
-EOF
-        chmod 755 "$WORKDIR/bin/pip-tv"
-    fi
+    chmod 755 "$WORKDIR/bin/php-tv"
     
     # 创建测试脚本
-    cat > "$WORKDIR/test.py" << 'EOF'
-import sys
-import platform
-
-print("=" * 50)
-print("Python 测试脚本")
-print("=" * 50)
-print(f"Python 版本: {sys.version}")
-print(f"Python 可执行文件: {sys.executable}")
-print(f"平台信息: {platform.platform()}")
-print(f"架构: {platform.machine()}")
-print("=" * 50)
-
-print("\n测试基础模块导入:")
-modules = ['os', 'sys', 'json', 're', 'math', 'time', 'datetime']
-for mod in modules:
-    try:
-        __import__(mod)
-        print(f"  ✓ {mod}")
-    except ImportError as e:
-        print(f"  ✗ {mod}: {e}")
-
-print("\n测试数学运算:")
-print(f"  1 + 2 = {1+2}")
-print(f"  3 * 4 = {3*4}")
-
-print("\n✅ 所有测试完成！")
+    cat > "$WORKDIR/test.php" << 'EOF'
+<?php
+echo "PHP Version: " . phpversion() . "\n";
+echo "PHP Info:\n";
+echo "----------------------------------------\n";
+echo "Loaded Extensions: " . implode(", ", get_loaded_extensions()) . "\n";
+echo "----------------------------------------\n";
+echo "Test: 1+2=" . (1+2) . "\n";
+?>
 EOF
     
     # 创建架构信息文件
@@ -387,66 +394,62 @@ EOF
 - 目标架构: ${TARGET_ARCH}
 - 打包设备架构: ${CURRENT_ARCH}
 - 打包日期: $(date)
-- Python 版本: ${PYTHON_FULL}
+- PHP 版本: ${PHP_FULL}
 
 注意: 如果运行出现问题，请在真实的 ${TARGET_ARCH} 设备上重新打包
 EOF
     
     # 创建 README
     cat > "$WORKDIR/README.txt" << EOF
-Python ${PYTHON_FULL} for Android TV Box (${TARGET_ARCH})
+PHP ${PHP_FULL} for Android TV Box (${TARGET_ARCH})
 
 使用说明:
-1. 解压到电视盒子目录 (如 /sdcard/python)
-2. 运行测试: cd /sdcard/python && ./bin/python-tv test.py
-3. 运行脚本: ./bin/python-tv 你的脚本.py
-4. 安装包: ./bin/pip-tv install 包名
+1. 解压到电视盒子目录 (如 /sdcard/php)
+2. 运行: cd /sdcard/php && ./bin/php-tv test.php
+3. 或者: ./bin/php-tv 你的脚本.php
 
 环境变量:
 - LD_LIBRARY_PATH: lib:/system/lib:/vendor/lib
-- PYTHONHOME: 当前目录
-- PYTHONPATH: lib/python${PYTHON_VER}/site-packages
+- PHPRC: etc/php.ini
+
+包含扩展:
+$(find "$WORKDIR/lib/php" -name "*.so" 2>/dev/null | xargs -n1 basename | sed 's/\.so$//' | tr '\n' ' ')
 
 打包日期: $(date)
 EOF
     
     echo -e "${GREEN}  ✓ 脚本创建完成${NC}"
     
-    # ----- 8. 测试打包的 Python -----
-    echo -e "${BLUE}[8/8] 测试打包的 Python...${NC}"
+    # ----- 8. 测试打包的 PHP -----
+    echo -e "${BLUE}[8/7] 测试打包的 PHP...${NC}"
     cp -r "$WORKDIR/"* "$TEST_DIR/"
     
     # 设置测试环境
     export TEST_LD_LIBRARY_PATH="$TEST_DIR/lib:/system/lib:/vendor/lib"
-    export TEST_PYTHONHOME="$TEST_DIR"
+    export TEST_PHPRC="$TEST_DIR/etc/php.ini"
     
     echo -e "${YELLOW}  运行测试脚本...${NC}"
     
-    # 尝试运行 Python
-    if env -i LD_LIBRARY_PATH="$TEST_LD_LIBRARY_PATH" PYTHONHOME="$TEST_PYTHONHOME" "$TEST_DIR/bin/python3" test.py > "$TEST_DIR/test-output.log" 2>&1; then
-        echo -e "${GREEN}  ✓ Python 测试通过${NC}"
-        echo -e "${GREEN}  ✓ $(env -i LD_LIBRARY_PATH="$TEST_LD_LIBRARY_PATH" "$TEST_DIR/bin/python3" --version 2>/dev/null)${NC}"
+    # 尝试运行 PHP
+    if env -i LD_LIBRARY_PATH="$TEST_LD_LIBRARY_PATH" PHPRC="$TEST_PHPRC" "$TEST_DIR/bin/php" test.php > "$TEST_DIR/test-output.log" 2>&1; then
+        echo -e "${GREEN}  ✓ PHP 测试通过${NC}"
+        echo -e "${GREEN}  ✓ $(env -i LD_LIBRARY_PATH="$TEST_LD_LIBRARY_PATH" "$TEST_DIR/bin/php" --version | head -1)${NC}"
     else
-        echo -e "${RED}  ✗ Python 测试失败${NC}"
+        echo -e "${RED}  ✗ PHP 测试失败${NC}"
         echo -e "${YELLOW}  错误信息:${NC}"
-        tail -10 "$TEST_DIR/test-output.log"
+        tail -5 "$TEST_DIR/test-output.log"
         
         # 尝试直接运行查看错误
         echo -e "${YELLOW}  尝试直接运行:${NC}"
-        env -i LD_LIBRARY_PATH="$TEST_LD_LIBRARY_PATH" "$TEST_DIR/bin/python3" --version 2>&1 || true
+        env -i LD_LIBRARY_PATH="$TEST_LD_LIBRARY_PATH" "$TEST_DIR/bin/php" --version 2>&1 || true
         
         echo ""
-        echo -e "${YELLOW}  是否继续打包？(y/n)${NC}"
-        read -p "> " CONTINUE
-        if [[ "$CONTINUE" != "y" && "$CONTINUE" != "Y" ]]; then
-            echo -e "${RED}打包取消${NC}"
-            rm -rf "$WORKDIR" "$TEST_DIR"
-            exit 1
-        fi
+        echo -e "${YELLOW}测试失败，按回车键继续打包，或按 Ctrl+C 取消${NC}"
+        read -p ""
     fi
     
     # ----- 9. 打包为 ZIP -----
-    echo -e "${BLUE}[9/8] 打包为 ZIP...${NC}"
+    echo -e "${BLUE}[9/7] 打包为 ZIP...${NC}"
     cd "$WORKDIR"
     zip -ry "$OUTPUT_PATH" ./* > /dev/null
     cd "$HOME"
@@ -465,15 +468,14 @@ EOF
     echo ""
     echo -e "${PURPLE}lab.json 配置:${NC}"
     echo '  {'
-    echo "    \"name\": \"python\","
+    echo "    \"name\": \"php\","
     echo "    \"group\": \"runtime\","
-    echo "    \"version\": \"${PYTHON_FULL}\","
-    echo "    \"binary_path\": \"bin/python-tv\","
+    echo "    \"version\": \"${PHP_FULL}\","
+    echo "    \"binary_path\": \"bin/php-tv\","
     echo "    \"var_path\": {"
     echo "      \"PATH\": \"bin\","
     echo "      \"LD_LIBRARY_PATH\": \"lib:/system/lib:/vendor/lib\","
-    echo "      \"PYTHONHOME\": \".\","
-    echo "      \"PYTHONPATH\": \"lib/python${PYTHON_VER}/site-packages\""
+    echo "      \"PHPRC\": \"etc/php.ini\""
     echo "    },"
     echo "    \"downloads\": ["
     echo "      {"
@@ -487,15 +489,10 @@ EOF
     
     # 清理临时文件
     echo ""
-    read -p "是否清理临时文件？(y/n): " CLEANUP
-    if [[ "$CLEANUP" == "y" || "$CLEANUP" == "Y" ]]; then
-        rm -rf "$WORKDIR" "$TEST_DIR"
-        echo -e "${GREEN}✓ 已清理临时文件${NC}"
-    else
-        echo -e "${YELLOW}临时文件保留在:${NC}"
-        echo "  - $WORKDIR"
-        echo "  - $TEST_DIR"
-    fi
+    echo -e "${YELLOW}按回车键清理临时文件，或按 Ctrl+C 保留${NC}"
+    read -p ""
+    rm -rf "$WORKDIR" "$TEST_DIR"
+    echo -e "${GREEN}✓ 已清理临时文件${NC}"
 }
 
 # ---------- 主函数 ----------
@@ -505,14 +502,9 @@ main() {
     check_environment
     
     echo ""
-    echo -e "${YELLOW}是否开始打包？(y/n)${NC}"
-    read -p "> " START
-    if [[ "$START" == "y" || "$START" == "Y" ]]; then
-        start_packaging
-    else
-        echo -e "${RED}打包取消${NC}"
-        exit 0
-    fi
+    echo -e "${YELLOW}按回车键开始打包，或按 Ctrl+C 取消${NC}"
+    read -p ""
+    start_packaging
 }
 
 main "$@"
