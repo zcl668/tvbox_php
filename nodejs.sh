@@ -2,7 +2,7 @@
 # ============================================================
 # node_tvbox.sh
 # 支持在 arm64 设备上打包 armeabi-v7a 版本的 Node.js
-# 打包为 ZIP 压缩包
+# 按回车键确认打包，无需键盘输入 y/n
 # ============================================================
 
 set -e
@@ -381,13 +381,8 @@ EOF
         env -i LD_LIBRARY_PATH="$TEST_LD_LIBRARY_PATH" "$TEST_DIR/bin/node" --version 2>&1 || true
         
         echo ""
-        echo -e "${YELLOW}  是否继续打包？(y/n)${NC}"
-        read -p "> " CONTINUE
-        if [[ "$CONTINUE" != "y" && "$CONTINUE" != "Y" ]]; then
-            echo -e "${RED}打包取消${NC}"
-            rm -rf "$WORKDIR" "$TEST_DIR"
-            exit 1
-        fi
+        echo -e "${YELLOW}测试失败，按回车键继续打包，或按 Ctrl+C 取消${NC}"
+        read -p ""
     fi
     
     # ----- 7. 打包为 ZIP -----
@@ -431,15 +426,10 @@ EOF
     
     # 清理临时文件
     echo ""
-    read -p "是否清理临时文件？(y/n): " CLEANUP
-    if [[ "$CLEANUP" == "y" || "$CLEANUP" == "Y" ]]; then
-        rm -rf "$WORKDIR" "$TEST_DIR"
-        echo -e "${GREEN}✓ 已清理临时文件${NC}"
-    else
-        echo -e "${YELLOW}临时文件保留在:${NC}"
-        echo "  - $WORKDIR"
-        echo "  - $TEST_DIR"
-    fi
+    echo -e "${YELLOW}按回车键清理临时文件，或按 Ctrl+C 保留${NC}"
+    read -p ""
+    rm -rf "$WORKDIR" "$TEST_DIR"
+    echo -e "${GREEN}✓ 已清理临时文件${NC}"
 }
 
 # ---------- 主函数 ----------
@@ -449,14 +439,9 @@ main() {
     check_environment
     
     echo ""
-    echo -e "${YELLOW}是否开始打包？(y/n)${NC}"
-    read -p "> " START
-    if [[ "$START" == "y" || "$START" == "Y" ]]; then
-        start_packaging
-    else
-        echo -e "${RED}打包取消${NC}"
-        exit 0
-    fi
+    echo -e "${YELLOW}按回车键开始打包，或按 Ctrl+C 取消${NC}"
+    read -p ""
+    start_packaging
 }
 
 main "$@"
