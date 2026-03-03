@@ -1,7 +1,8 @@
 #!/bin/bash
 # ============================================================
 # php_tvbox.sh
-# 支持在 arm64 设备上打包 armeabi-v7a 版本的 PHP
+# 适配 armv8l (64位CPU运行32位系统) 的电视盒子
+# 自动检测并选择合适的架构
 # 按回车键确认打包，无需键盘输入 y/n
 # ============================================================
 
@@ -16,39 +17,62 @@ PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-# ---------- 初始化 ----------
-init_vars() {
-    # 检测当前设备架构
+# ---------- 检测实际兼容架构 ----------
+detect_compatible_arch() {
     MACHINE=$(uname -m)
+    
     case "$MACHINE" in
-        aarch64)  
+        aarch64)
             CURRENT_ARCH="arm64-v8a"
+            RECOMMEND_ARCH="arm64-v8a"
             TERMUX_LIB_PATH="aarch64"
+            ARCH_DESC="纯64位系统"
             ;;
-        armv7l)   
-            CURRENT_ARCH="armeabi-v7a"
+        armv8l)
+            CURRENT_ARCH="armv8l"
+            # armv8l 是64位CPU运行32位系统，推荐使用 armeabi-v7a
+            RECOMMEND_ARCH="armeabi-v7a"
             TERMUX_LIB_PATH="arm"
+            ARCH_DESC="64位CPU运行32位系统 (电视盒子常见)"
             ;;
-        x86_64)   
+        armv7l)
+            CURRENT_ARCH="armeabi-v7a"
+            RECOMMEND_ARCH="armeabi-v7a"
+            TERMUX_LIB_PATH="arm"
+            ARCH_DESC="32位系统"
+            ;;
+        x86_64)
             CURRENT_ARCH="x86_64"
+            RECOMMEND_ARCH="x86_64"
             TERMUX_LIB_PATH="x86_64"
+            ARCH_DESC="64位x86系统"
             ;;
-        i686)     
+        i686)
             CURRENT_ARCH="x86"
+            RECOMMEND_ARCH="x86"
             TERMUX_LIB_PATH="i686"
+            ARCH_DESC="32位x86系统"
             ;;
-        *)        
+        *)
             CURRENT_ARCH="$MACHINE"
+            RECOMMEND_ARCH="$MACHINE"
             TERMUX_LIB_PATH="$MACHINE"
+            ARCH_DESC="未知架构"
             ;;
     esac
     
-    # 目标架构固定为 armeabi-v7a
-    TARGET_ARCH="armeabi-v7a"
+    # 目标架构固定为推荐的架构
+    TARGET_ARCH="$RECOMMEND_ARCH"
+}
+
+# ---------- 初始化 ----------
+init_vars() {
+    detect_compatible_arch
     
     echo -e "${CYAN}================================================${NC}"
     echo -e "${YELLOW}当前设备架构: ${CURRENT_ARCH}${NC}"
-    echo -e "${YELLOW}目标打包架构: ${TARGET_ARCH} (电视盒子优化版)${NC}"
+    echo -e "${YELLOW}架构说明: ${ARCH_DESC}${NC}"
+    echo -e "${YELLOW}推荐打包架构: ${RECOMMEND_ARCH} (电视盒子优化版)${NC}"
     echo -e "${CYAN}================================================${NC}"
     
     # 获取 PHP 版本
@@ -109,11 +133,16 @@ check_environment() {
         echo -e "${YELLOW}警告: 未安装 zip，建议安装: pkg install zip${NC}"
     fi
     
-    # 如果是 arm64 架构，显示提示
-    if [ "$CURRENT_ARCH" = "arm64-v8a" ]; then
-        echo -e "${YELLOW}注意: 在 arm64 设备上打包 armeabi-v7a 版本${NC}"
+    # 针对 armv8l 的特殊提示
+    if [ "$CURRENT_ARCH" = "armv8l" ]; then
+        echo -e "${YELLOW}注意: 您的设备是 armv8l (64位CPU运行32位系统)${NC}"
+        echo -e "${YELLOW}将打包 ${TARGET_ARCH} 版本以获得最佳兼容性${NC}"
+    fi
+    
+    # 如果当前架构不等于目标架构，显示提示
+    if [ "$CURRENT_ARCH" != "$TARGET_ARCH" ] && [ "$CURRENT_ARCH" != "armv8l" ]; then
+        echo -e "${YELLOW}注意: 当前架构 ${CURRENT_ARCH} 与目标架构 ${TARGET_ARCH} 不同${NC}"
         echo -e "${YELLOW}将使用当前设备的库文件，可能与目标架构不完全兼容${NC}"
-        echo -e "${YELLOW}建议在真实的 armeabi-v7a 设备上打包以获得最佳兼容性${NC}"
     fi
 }
 
@@ -169,10 +198,8 @@ start_packaging() {
     echo -e "${GREEN}  ✓ 已复制: $PHP_BIN${NC}"
     
     # 检查二进制架构
-    if [ "$CURRENT_ARCH" != "$TARGET_ARCH" ]; then
-        FILE_ARCH=$(check_file_arch "$PHP_BIN")
-        echo -e "${YELLOW}  ⚠ PHP 二进制架构: ${FILE_ARCH:-未知}${NC}"
-    fi
+    FILE_ARCH=$(check_file_arch "$PHP_BIN")
+    echo -e "${YELLOW}  PHP 二进制架构: ${FILE_ARCH:-未知}${NC}"
     
     # 创建链接
     cd "$WORKDIR/bin"
@@ -189,8 +216,8 @@ start_packaging() {
         echo -e "${GREEN}  ✓ 已复制 $EXT_COUNT 个扩展${NC}"
         
         # 显示前几个扩展的架构信息
-        if [ "$CURRENT_ARCH" != "$TARGET_ARCH" ] && [ $EXT_COUNT -gt 0 ]; then
-            echo -e "${YELLOW}  ⚠ 扩展架构示例:${NC}"
+        if [ $EXT_COUNT -gt 0 ]; then
+            echo -e "${YELLOW}  扩展架构示例:${NC}"
             for SO in $(find "$WORKDIR/lib/php" -name "*.so" 2>/dev/null | head -3); do
                 SO_ARCH=$(check_file_arch "$SO")
                 echo -e "    $(basename $SO): ${SO_ARCH:-未知}"
@@ -220,17 +247,27 @@ start_packaging() {
     
     ALL_DEPS=$(echo "$ALL_DEPS" | sort -u | grep -v '^$')
     
-    # 复制依赖库
+    # 复制依赖库 - 优先使用 arm 架构的库（针对 armv8l）
     for LIB in $ALL_DEPS; do
         if [ ! -f "$WORKDIR/lib/$LIB" ]; then
             # 优先查找对应架构的库
             LIB_PATH=""
-            if [ -n "$TERMUX_LIB_PATH" ]; then
+            
+            # 针对 armv8l，优先查找 arm 目录
+            if [ "$CURRENT_ARCH" = "armv8l" ]; then
+                LIB_PATH=$(find "${TERMUX_PREFIX}/lib/arm" -name "$LIB" 2>/dev/null | head -1)
+            fi
+            
+            # 如果没找到，使用 TERMUX_LIB_PATH
+            if [ -z "$LIB_PATH" ] && [ -n "$TERMUX_LIB_PATH" ]; then
                 LIB_PATH=$(find "${TERMUX_PREFIX}/lib/$TERMUX_LIB_PATH" -name "$LIB" 2>/dev/null | head -1)
             fi
+            
+            # 最后在 lib 目录下查找
             if [ -z "$LIB_PATH" ]; then
                 LIB_PATH=$(find "${TERMUX_PREFIX}/lib" -name "$LIB" 2>/dev/null | head -1)
             fi
+            
             if [ -n "$LIB_PATH" ] && [ -f "$LIB_PATH" ]; then
                 cp "$LIB_PATH" "$WORKDIR/lib/"
                 echo -e "${GREEN}  ✓ 复制: $LIB${NC}"
@@ -238,7 +275,7 @@ start_packaging() {
         fi
     done
     
-    # ----- 5. 复制基础系统库 -----
+    # ----- 5. 复制基础系统库（针对电视盒子优化）-----
     echo -e "${BLUE}[5/7] 复制基础系统库...${NC}"
     
     # 电视盒子需要的基础库
@@ -273,12 +310,20 @@ start_packaging() {
         if [ ! -f "$WORKDIR/lib/$LIB" ]; then
             # 优先查找对应架构的库
             LIB_PATH=""
-            if [ -n "$TERMUX_LIB_PATH" ]; then
+            
+            # 针对 armv8l，优先查找 arm 目录
+            if [ "$CURRENT_ARCH" = "armv8l" ]; then
+                LIB_PATH=$(find "${TERMUX_PREFIX}/lib/arm" -name "$LIB" 2>/dev/null | head -1)
+            fi
+            
+            if [ -z "$LIB_PATH" ] && [ -n "$TERMUX_LIB_PATH" ]; then
                 LIB_PATH=$(find "${TERMUX_PREFIX}/lib/$TERMUX_LIB_PATH" -name "$LIB" 2>/dev/null | head -1)
             fi
+            
             if [ -z "$LIB_PATH" ]; then
                 LIB_PATH=$(find "${TERMUX_PREFIX}/lib" -name "$LIB" 2>/dev/null | head -1)
             fi
+            
             if [ -n "$LIB_PATH" ] && [ -f "$LIB_PATH" ]; then
                 cp "$LIB_PATH" "$WORKDIR/lib/" 2>/dev/null && echo -e "${GREEN}  ✓ 复制: $LIB${NC}"
             fi
@@ -391,12 +436,13 @@ EOF
     # 创建架构信息文件
     cat > "$WORKDIR/arch-info.txt" << EOF
 打包架构信息:
-- 目标架构: ${TARGET_ARCH}
-- 打包设备架构: ${CURRENT_ARCH}
+- 检测到的架构: ${CURRENT_ARCH}
+- 架构说明: ${ARCH_DESC}
+- 目标打包架构: ${TARGET_ARCH}
 - 打包日期: $(date)
 - PHP 版本: ${PHP_FULL}
 
-注意: 如果运行出现问题，请在真实的 ${TARGET_ARCH} 设备上重新打包
+注意: 此包专为 ${TARGET_ARCH} 架构优化
 EOF
     
     # 创建 README
@@ -415,7 +461,10 @@ PHP ${PHP_FULL} for Android TV Box (${TARGET_ARCH})
 包含扩展:
 $(find "$WORKDIR/lib/php" -name "*.so" 2>/dev/null | xargs -n1 basename | sed 's/\.so$//' | tr '\n' ' ')
 
-打包日期: $(date)
+打包信息:
+- 检测到的架构: ${CURRENT_ARCH}
+- 目标架构: ${TARGET_ARCH}
+- 打包日期: $(date)
 EOF
     
     echo -e "${GREEN}  ✓ 脚本创建完成${NC}"
@@ -462,8 +511,8 @@ EOF
     echo -e "  文件: ${YELLOW}${OUTPUT_PATH}${NC}"
     echo -e "  大小: ${YELLOW}${ZIP_SIZE}${NC}"
     echo -e "  文件数: ${YELLOW}${ZIP_FILES}${NC}"
+    echo -e "  检测架构: ${YELLOW}${CURRENT_ARCH}${NC}"
     echo -e "  目标架构: ${YELLOW}${TARGET_ARCH}${NC}"
-    echo -e "  打包设备: ${YELLOW}${CURRENT_ARCH}${NC}"
     echo -e "${CYAN}================================================${NC}"
     echo ""
     echo -e "${PURPLE}lab.json 配置:${NC}"
